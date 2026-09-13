@@ -3,7 +3,7 @@ from typing import Optional
 from src.config.config import current as get_config
 from src.connection.client import Client
 from src.orm.commander import create_commander
-from src.logger.logger import log_event, LOG_LEVEL_ERROR, LOG_LEVEL_INFO
+from src.logger.logger import log_event, LOG_LEVEL_ERROR, LOG_LEVEL_INFO, LOG_LEVEL_WARN
 from src.protobuf import protobuf
 
 from src.orm import get_commander_core_by_id
@@ -12,6 +12,10 @@ from .server_ticket import parse_server_ticket
 
 USER_STATUS_OK = 0
 USER_STATUS_BANNED = 17
+# Unhandled by the client's SC_10023 dispatch -> generic SERVER_LOGIN_FAILED:
+# the client shows an error and returns to the title screen instead of
+# entering the new-player flow.
+JOIN_RESULT_FAILED = 1
 
 
 def _make_sc10023(result, user_id, server_load, db_load, server_ticket="=*=*=*=PrivateDock=*=*=*="):
@@ -108,7 +112,24 @@ async def _do_join_server(proto_data, client):
         return
 
     if client.commander is None:
-        log_event("Server", "SC_10023", f"commander not found for account_id={account_id}", LOG_LEVEL_ERROR)
+        if client.auth_arg2 == 0:
+            # Client joined with an account_id this server doesn't know AND
+            # without an auth identity — it skipped CS_10020 (a stale cached
+            # session, e.g. after the server DB was recreated). The CS_10024
+            # creation flow needs auth_arg2, so entry would dead-end at the
+            # tutorial name screen; reject the login instead so the client
+            # shows an error and goes back to re-authenticate.
+            log_event("Server", "SC_10023",
+                      f"account_id={account_id} unknown and no auth ticket (client skipped CS_10020) — rejecting login",
+                      LOG_LEVEL_WARN)
+            await client.send_message(10023, _make_sc10023(JOIN_RESULT_FAILED, 0, server_load, db_load))
+            return
+        # Normal new-player path: the client replies to user_id=0 by walking the
+        # tutorial and creating the account via CS_10024 (auth_arg2 was set by
+        # CS_10020 earlier in the same session).
+        log_event("Server", "SC_10023",
+                  f"no commander for account_id={account_id} — replying user_id=0 (new-player flow)",
+                  LOG_LEVEL_INFO)
         await client.send_message(10023, _make_sc10023(USER_STATUS_OK, 0, server_load, db_load))
         return
 
