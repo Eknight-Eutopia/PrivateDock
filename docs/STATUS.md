@@ -83,7 +83,7 @@ Works, but a number of entries have no content yet.
 
 ### Construction
 Light, Heavy and Special pools, medal exchange and ship retirement work. Wishing Well and the
-build event are inactive for now — see _Deferred_ below.
+build event are inactive for now.
 
 ### Operation Siren (World)
 Only a small part is present; the full map / zone / fleet loop is not implemented.
@@ -118,7 +118,5 @@ implemented.
 
 ## Deferred & limitations
 
-- **Build event / Wishing Well** — deferred until the next official EN build event, so the
-  server's response can be aligned with it. Standard construction is unaffected.
 - **Real-money purchases** are not supported — there is no payment processing.
 - **Tests** are not part of this repository yet.
