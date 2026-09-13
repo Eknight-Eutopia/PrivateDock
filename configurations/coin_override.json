@@ -1,0 +1,11 @@
+{
+  "_comment": "Coin amount overrides. 'default' = [min, max] gold range for research/technology completion coin rewards (a max <= 0 disables the override and the template amount is used); 'coin_word_amounts' = [min, max] gold range per expedition award_display coin word (case-insensitive). Calibrated 2026-09-11 against official mitm captures: the 4-4 boss ([2, 59001, 'Numerous']) dropped 1091/1246 gold, so 'numerous' = [1000, 1500] and the rest are scaled down proportionally (the old 3000-6000 for 'numerous' was ~4x official). Loaded by src/config/coin_override.py; the loader caches, so a server restart is needed to pick up edits.",
+  "default": [100, 500],
+  "coin_word_amounts": {
+    "few": [50, 150],
+    "some": [150, 400],
+    "normal": [400, 800],
+    "many": [700, 1200],
+    "numerous": [1000, 1500]
+  }
+}

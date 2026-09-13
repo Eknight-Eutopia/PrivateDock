@@ -1,0 +1,154 @@
+{
+  "small": {
+    "category_drop_chance": {
+      "ship": 0.3093,
+      "blueprint": 0.0577,
+      "tech": 0.0,
+      "coin": 1.0,
+      "retrofit": 0.25
+    },
+    "plate_rates": {
+      "t1": 0.8132,
+      "t2": 0.7003,
+      "t3": 0.5000
+    },
+    "coin_range": [8, 20],
+    "attempts": {
+      "ship": 1,
+      "blueprint": 1,
+      "tech": 0,
+      "coin": 1,
+      "retrofit": 1
+    }
+  },
+  "medium": {
+    "category_drop_chance": {
+      "ship": 0.5008,
+      "blueprint": 0.0760,
+      "tech": 0.0,
+      "coin": 1.0,
+      "retrofit": 0.25
+    },
+    "plate_rates": {
+      "t1": 0.9549,
+      "t2": 0.8668,
+      "t3": 0.6979
+    },
+    "coin_range": [10, 25],
+    "attempts": {
+      "ship": 1,
+      "blueprint": 1,
+      "tech": 0,
+      "coin": 1,
+      "retrofit": 1
+    }
+  },
+  "large": {
+    "category_drop_chance": {
+      "ship": 0.7064,
+      "blueprint": 0.1017,
+      "tech": 0.0,
+      "coin": 1.0,
+      "retrofit": 0.25
+    },
+    "plate_rates": {
+      "t1": 1.0000,
+      "t2": 0.9899,
+      "t3": 0.8433
+    },
+    "coin_range": [12, 30],
+    "attempts": {
+      "ship": 1,
+      "blueprint": 1,
+      "tech": 0,
+      "coin": 1,
+      "retrofit": 1
+    }
+  },
+  "elite": {
+    "category_drop_chance": {
+      "ship": 0.6786,
+      "blueprint": 0.4991,
+      "tech": 1.0,
+      "coin": 1.0,
+      "retrofit": 0.50
+    },
+    "plate_rates": {
+      "t1": 0.0,
+      "t2": 0.0,
+      "t3": 1.4060
+    },
+    "coin_range": [15, 35],
+    "attempts": {
+      "ship": 1,
+      "blueprint": 1,
+      "tech": 1,
+      "coin": 1,
+      "retrofit": 1
+    }
+  },
+  "boss": {
+    "category_drop_chance": {
+      "ship": 1.0000,
+      "blueprint": 0.6900,
+      "tech": 1.0,
+      "coin": 1.0,
+      "retrofit": 1.0
+    },
+    "plate_rates": {
+      "t1": 0.0,
+      "t2": 0.0,
+      "t3": 2.7127
+    },
+    "coin_range": [40, 90],
+    "attempts": {
+      "ship": 1,
+      "blueprint": 2,
+      "tech": 1,
+      "coin": 1,
+      "retrofit": 1
+    }
+  },
+  "plate_ratios": {
+    "recon": {
+      "torpedo": 0.5185,
+      "aircraft": 0.2821,
+      "antiair": 0.1995
+    },
+    "main": {
+      "main_gun": 0.5329,
+      "general": 0.2702,
+      "antiair": 0.1970
+    },
+    "aviation": {
+      "aircraft": 0.5945,
+      "general": 0.2025,
+      "antiair": 0.2030
+    },
+    "cargo": {
+      "main_gun": 0.4167,
+      "antiair": 0.3333,
+      "torpedo": 0.0833,
+      "aircraft": 0.0833,
+      "general": 0.0833
+    },
+    "boss": {
+      "general": 0.293,
+      "antiair": 0.268,
+      "torpedo": 0.171,
+      "main_gun": 0.146,
+      "aircraft": 0.122
+    }
+  },
+  "tier_weights": {
+    "1": 100,
+    "2": 65,
+    "3": 35,
+    "4": 15,
+    "5": 8
+  },
+  "modifiers": {
+    "s_rank_score": 4,
+    "chapter_tier_ramp": 0.05
+  }
+}

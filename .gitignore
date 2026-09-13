@@ -1,0 +1,22 @@
+# Represents game's update hashes
+.cached_hashes
+
+# Random stuff that isn't needed in the repo
+/data/
+/logs/
+/db/
+
+# Python bytecode cache
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+.venv/
+
+# Editors and IDEs
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini

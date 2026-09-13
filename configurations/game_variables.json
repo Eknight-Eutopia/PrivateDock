@@ -1,0 +1,6 @@
+{
+  "_comment": "Gameplay tunable variables and server-side limit overrides. tutorial_first_build_ship: ship template id granted as EVERY commander's first (tutorial) build; 0 or absent = normal random roll. 202121=Belfast",
+  "build_dock_slots": 4,
+  "max_gear_skin_boxes": 1,
+  "tutorial_first_build_ship": 202121
+}

@@ -1,0 +1,33 @@
+{
+  "regions": {
+    "EN": {
+      "gateway": "blhxusgate.yo-star.com",
+      "proxy": "blhxusproxy.yo-star.com",
+      "utc_offset_seconds": -25200,
+      "monday_0oclock_timestamp": 1606114800,
+      "platform_urls": {
+        "0": "https://play.google.com/store/apps/details?id=com.YoStarEN.AzurLane",
+        "1": "https://itunes.apple.com/us/app/azur-lane/id1411126549"
+      }
+    },
+    "CN": {
+      "gateway": "line1-login-bili-blhx.bilibiligame.net",
+      "proxy": "line1-bak-login-bili-blhx.bilibiligame.net",
+      "utc_offset_seconds": 28800,
+      "monday_0oclock_timestamp": 1606060800,
+      "platform_urls": {
+        "0": "https://blhx.biligame.com/",
+        "1": "https://blhx.biligame.com/"
+      }
+    },
+    "JP": {
+      "utc_offset_seconds": 32400
+    },
+    "KR": {
+      "utc_offset_seconds": 32400
+    },
+    "TW": {
+      "utc_offset_seconds": 28800
+    }
+  }
+}

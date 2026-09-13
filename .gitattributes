@@ -1,0 +1,13 @@
+# Normalize line endings on checkin; check out with the platform's native endings.
+* text=auto
+
+# Files that must keep LF even on Windows.
+*.sh text eol=lf
+
+# Treated as binary by the diff/merge machinery.
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+*.png binary
+*.jpg binary
+*.pbf binary

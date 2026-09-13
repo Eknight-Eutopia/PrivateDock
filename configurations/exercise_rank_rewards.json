@@ -1,0 +1,20 @@
+{
+  "_comment": "Exercise PROMOTION reward: Merit mailed once per season when the player reaches a NEW highest rank tier. Index = 1-based tier index into EXERCISE_TIERS (helpers.py). Amounts are the official 'Merit (Promotion)' column from the Military Exercise table.",
+  "currency_resource_id": 3,
+  "tiers": {
+    "1": 0,
+    "2": 200,
+    "3": 600,
+    "4": 600,
+    "5": 600,
+    "6": 1000,
+    "7": 1000,
+    "8": 1000,
+    "9": 1500,
+    "10": 1500,
+    "11": 1500,
+    "12": 1500,
+    "13": 1500,
+    "14": 2500
+  }
+}

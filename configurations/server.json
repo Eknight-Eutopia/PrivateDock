@@ -1,0 +1,56 @@
+{
+  "privatedock": {
+    "bind_address": "127.0.0.1",
+    "port": 80,
+    "name": "Private Dock",
+    "require_private_clients": false
+  },
+  "servers": [
+    {
+      "id": 1,
+      "name": "Private Dock",
+      "ip": "127.0.0.1",
+      "port": 80
+    }
+  ],
+  "api": {
+    "enabled": false,
+    "port": 2289,
+    "environment": "development",
+    "cors_origins": ["*"]
+  },
+  "auth": {
+    "disable_auth": false,
+    "session_ttl_seconds": 86400,
+    "session_sliding": true,
+    "cookie_name": "privatedock_admin_session",
+    "cookie_secure": true,
+    "cookie_same_site": "lax",
+    "csrf_ttl_seconds": 7200,
+    "password_min_length": 4,
+    "webauthn_rp_id": "localhost",
+    "webauthn_rp_name": "Private Dock Admin",
+    "webauthn_expected_origins": ["http://localhost:3000"],
+    "webauthn_challenge_ttl_seconds": 300,
+    "rate_limit_window_seconds": 60,
+    "rate_limit_login_max": 5,
+    "rate_limit_passkey_max": 5
+  },
+  "database": {
+    "driver": "sqlite",
+    "path": "db/privatedock.db",
+    "schema_name": "privatedock"
+  },
+  "region": {
+    "default": "EN"
+  },
+  "create_player": {
+    "skip_onboarding": false,
+    "name_blacklist": [],
+    "name_illegal_pattern": ""
+  },
+  "logs": {
+    "max_age_days": 14,
+    "max_total_mb": 30
+  }
+}
