@@ -638,15 +638,11 @@ def handle_finish_stage(
     response = protobuf.SC_40004(result=0, player_exp=player_exp, mvp=mvp)
     for item in drop_list:
         entry = protobuf.DROPINFO()
-        entry.type = item.get("type", 0)
-        entry.id = item.get("id", 0)
-        entry.number = item.get("number", 0)
+        entry.type, entry.id, entry.number = _wire_drop(item)
         response.drop_info.append(entry)
     for item in extra_drop_list:
         entry = protobuf.DROPINFO()
-        entry.type = item.get("type", 0)
-        entry.id = item.get("id", 0)
-        entry.number = item.get("number", 0)
+        entry.type, entry.id, entry.number = _wire_drop(item)
         response.extra_drop_info.append(entry)
     for entry in ship_exp_list:
         response.ship_exp_list.append(entry)
@@ -694,10 +690,8 @@ def handle_daily_quick_battle(
         reward = protobuf.QUICK_REWARD()
         for d in daily_drops.values():
             di = reward.drop_list.add()
-            di.type = d["type"]
-            di.id = d["id"]
-            di.number = d["number"]
-        response.reward_list.append(reward)
+            di.type, di.id, di.number = _wire_drop(d)
+            response.reward_list.append(reward)
 
     # A quick (repeat) battle replays a previously-cleared stage, so it must
     # advance the same task-progress events as a normal stage finish. Without
@@ -1147,6 +1141,26 @@ def _clamp_uint32(value: int, min_val: int, max_val: int) -> int:
     if value > max_val:
         return max_val
     return value
+
+
+def _wire_drop(item: dict) -> tuple[int, int, int]:
+    """Convert a drops-dict entry into the DROPINFO shape the client credits.
+
+    Resource-proxy virtuals (Coins 59001, Oil 59002, ...) are internal bookkeeping
+    only: official SC_40004 sends gold as {type:1, id:1} (resource), and a type-2
+    entry for 59001 makes the CLIENT file the "Coins" item into its local depot --
+    the inventory contamination the server DB never has. Server-side granting is
+    unaffected: _apply_drop_list already routes them through the add_item guard.
+    """
+    d_type = item.get("type", 0)
+    d_id = item.get("id", 0)
+    d_count = item.get("number", 0)
+    if d_type == 2:
+        from src.consts.drop_types import DROP_TYPE_RESOURCE
+        from src.orm.item import RESOURCE_VIRTUAL_ITEMS
+        if d_id in RESOURCE_VIRTUAL_ITEMS:
+            return DROP_TYPE_RESOURCE, RESOURCE_VIRTUAL_ITEMS[d_id], d_count
+    return d_type, d_id, d_count
 
 
 def _apply_drop_list(client: Client, drops: dict) -> None:
