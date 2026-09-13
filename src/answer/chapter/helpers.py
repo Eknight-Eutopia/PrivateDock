@@ -95,6 +95,7 @@ class ChapterTemplate:
     is_ambush: int = 0
     investigation_ratio: int = 0
     avoid_ratio: int = 0
+    avoid_require: int = 0
     ambush_ratio_extra: list = None
     chapter_strategy: list = None
     boss_expedition_id: list = None
@@ -193,6 +194,7 @@ def _parse_chapter_template(data: dict) -> ChapterTemplate:
     t.is_ambush = data.get("is_ambush", 0)
     t.investigation_ratio = data.get("investigation_ratio", 0)
     t.avoid_ratio = data.get("avoid_ratio", 0)
+    t.avoid_require = data.get("avoid_require", 0)
     t.ambush_ratio_extra = data.get("ambush_ratio_extra") or []
     t.chapter_strategy = data.get("chapter_strategy") or []
     t.boss_expedition_id = data.get("boss_expedition_id") or []
@@ -967,6 +969,22 @@ def build_current_chapter_info(template: ChapterTemplate, payload, operation_buf
     return current, init_ship_count
 
 
+def chapter_ambush_prevented_by_recon(template, current, client) -> bool:
+    # Client parity (chapterleveldata.lua GetWillActiveAmbush): once ANY normal
+    # fleet's recon value (invest sums) reaches the map's avoid_require, ambush
+    # is disabled for the whole chapter and the level screen shows
+    # "Chance of encounter: None".
+    if template is None or current is None or client is None:
+        return False
+    avoid_require = float(getattr(template, "avoid_require", 0) or 0)
+    if avoid_require <= 0:
+        return False
+    for group in current.main_group_list:
+        if calculate_group_invest_sums(group, client) >= avoid_require:
+            return True
+    return False
+
+
 def maybe_trigger_chapter_ambush(template, current, group, end: ChapterPos, client):
     from src.protobuf import protobuf
     if template is None or current is None or group is None or client is None:
@@ -979,6 +997,8 @@ def maybe_trigger_chapter_ambush(template, current, group, end: ChapterPos, clie
     if cell is not None:
         if cell.item_type != CHAPTER_ATTACH_BORN and cell.item_type != CHAPTER_ATTACH_BORN_SUB:
             return None
+    if chapter_ambush_prevented_by_recon(template, current, client):
+        return None
     threshold = calculate_ambush_trigger_threshold(template, group, end, client)
     if threshold == 0:
         return None

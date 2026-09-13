@@ -238,6 +238,9 @@ def _process_box_effect(client: Client, current, group, pos, template, box_id: i
         event_cell.item_flag = CHAPTER_CELL_AMBUSH
         event_cell.item_data = effect_arg
         upsert_chapter_cell(current, event_cell)
+        # The resulting cell is AttachAmbush for the client, so it resets the
+        # fleet's step counter after the fight (NeedClearStep) — mirror that.
+        group.step_count = 0
         return event_cell
     elif box_type == BOX_SUPPLY:
         if group.bullet is not None and group.bullet < 5:
@@ -327,6 +330,11 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
             ambush_cell = maybe_trigger_chapter_ambush(template, current, group, step, client)
             if ambush_cell is not None:
                 map_update.append(ambush_cell)
+                # Client resets the fleet's step counter on an ambush arrival
+                # (levelgrid.lua NeedClearStep -> step = 0), so the ambush
+                # chance builds up again from 5% instead of snowballing for
+                # the rest of the sortie.
+                group.step_count = 0
                 break
 
         # move_path holds the cells the fleet ENTERS, excluding the cell it
