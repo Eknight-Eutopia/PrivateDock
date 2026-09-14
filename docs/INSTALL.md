@@ -210,16 +210,9 @@ python -m src
 
 ## Connecting the Client
 
-### Connection Flow
-
-1. The Azur Lane EN client contacts the gateway domain `<GAME_GATE_HOST>` on port `80` (`CS_10800`).
-2. PrivateDock responds with `SC_10801` (asset version manifest).
-3. The client queries available game servers via `CS_10018`, receiving `SC_10019` containing the IP and port configured in `servers` within `server.json`.
-4. The client connects to the game server, authenticates (`CS_10020`), and synchronizes player dock and game state.
-
 ### 1. Redirect Client Traffic
 
-Redirect `<GAME_GATE_HOST>` to your server LAN IP address using one of the following methods:
+Redirect `blhxusgate.yo-star.com` to your server LAN IP address using one of the following methods:
 
 #### Method A: Hosts File / AdAway (Device or Emulator)
 
@@ -227,9 +220,9 @@ Redirect `<GAME_GATE_HOST>` to your server LAN IP address using one of the follo
 1. Install AdAway and grant it root access.
 2. Add a redirection entry:
    ```text
-   <YOUR_SERVER_LAN_IP> <GAME_GATE_HOST>
+   <YOUR_SERVER_LAN_IP> blhxusgate.yo-star.com
    ```
-   *(Example: `192.168.0.100 <GAME_GATE_HOST>`)*
+   *(Example: `192.168.0.100 blhxusgate.yo-star.com`)*
 3. Apply changes and restart the game.
 
 **Without root** — AdAway also has a VPN-based mode (Android 5.0+). It starts a local VPN, intercepts DNS queries and answers them itself, so an entry pointing at your server works like a hosts line without touching the system:
@@ -243,12 +236,12 @@ Redirect `<GAME_GATE_HOST>` to your server LAN IP address using one of the follo
 #### Method B: Local DNS Server (No Root Required)
 If your client device is not rooted:
 1. Configure a DNS rewrite rule on your local router, Pi-hole, or AdGuard Home:
-   - Domain: `<GAME_GATE_HOST>`
+   - Domain: `blhxusgate.yo-star.com`
    - Target IP: `<YOUR_SERVER_LAN_IP>`
 2. Point your phone/tablet DNS settings to that DNS server.
 
 #### Method C: HTTP Proxy / Redirection Tool
-Configure an HTTP proxy or iptables on your network to redirect port 80 traffic for `<GAME_GATE_HOST>` to `<YOUR_SERVER_LAN_IP>:80`.
+Configure an HTTP proxy or iptables on your network to redirect port 80 traffic for `blhxusgate.yo-star.com` to `<YOUR_SERVER_LAN_IP>:80`.
 
 ### 2. Login
 
@@ -363,7 +356,7 @@ PrivateDock includes an embedded REST API built with FastAPI. It is **disabled**
 - **Verify Server LAN IP**: Check that `servers[0].ip` in `configurations/server.json` is set to your machine's actual LAN IP address (e.g. `192.168.0.100`). The shipped default `127.0.0.1` only works when the client runs on the same machine, so a phone or a separate emulator will not connect until this is changed.
 - **Firewall Settings**: Ensure inbound TCP traffic on port 80 (and port 2289 if using the API) is allowed by your server's firewall (e.g. Windows Defender Firewall or Linux `ufw`).
 - **Verify Connectivity From Client Device**: Open a web browser on the client phone/tablet and navigate to `http://<YOUR_SERVER_LAN_IP>/`. The connection should be accepted (or reset), confirming network reachability.
-- **DNS / Hosts Check**: Ensure your hosts redirection on the client resolves `<GAME_GATE_HOST>` directly to your server IP.
+- **DNS / Hosts Check**: Ensure your hosts redirection on the client resolves `blhxusgate.yo-star.com` directly to your server IP.
 
 ### 4. Client Errors & Debugging via ADB
 

@@ -28,7 +28,7 @@ works, what is only partly covered, and what is not implemented yet, see the
 
 For full installation and configuration instructions, see the **[Installation Guide](docs/INSTALL.md)**.
 
-1. **Prerequisites**: Python 3.12+, Azur Lane EN client, and [AzurLaneLuaScripts](https://github.com/AzurLaneTools/AzurLaneLuaScripts) (branch `main`).
+1. **Prerequisites**: Python 3.12+, Azur Lane EN client, and [AzurLaneLuaScripts](https://github.com/AzurLaneTools/AzurLaneLuaScripts).
 2. **Clone & Install Dependencies**:
    ```bash
    git clone https://github.com/AzurLaneTools/AzurLaneLuaScripts.git
