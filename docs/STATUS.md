@@ -3,12 +3,12 @@
 PrivateDock covers most of the core game systems, but not all of them. This page lists what
 you can expect to actually work, so you don't go looking for a feature that isn't there yet.
 
-| Status | Meaning |
-| :--- | :--- |
-| **Works** | Implemented and tested in game. |
-| **Should work** | Implemented, but not yet confirmed in game. |
-| **Partly** | The main part works; some pieces are missing. |
-| **Doesn't work** | Not implemented — the feature is not usable. |
+| Status           | Meaning                                       |
+|:-----------------|:----------------------------------------------|
+| **Works**        | Implemented and tested in game.               |
+| **Should work**  | Implemented, but not yet confirmed in game.   |
+| **Partly**       | The main part works; some pieces are missing. |
+| **Doesn't work** | Not implemented — the feature is not usable.  |
 
 This list is maintained by hand and may lag slightly behind the code.
 
@@ -45,7 +45,7 @@ Item inventory, materials, equipment boxes, designs and consumables.
 ### Tactical Classes
 Skill training with tactical skill books, including live timers.
 
-### Dorm (Backyard)
+### Dorm
 Two floors, furniture and theme templates, ship resting, food buffs, comfort, and continuous
 EXP accrual.
 
@@ -55,8 +55,12 @@ Faction tech points.
 ### Missions
 Daily, weekly and main-campaign missions.
 
+### Ships Build
+Light, Heavy and Special pools, medal exchange and ship retirement work. Wishing Well and the
+build event are inactive for now.
+
 ### Main Campaign
-Chapters 1–4 including Hard stages: grid movement, enemy fleets, ambushes, boss spawns, star
+Chapters 1–5 including Hard stages: grid movement, enemy fleets, ambushes, boss spawns, star
 rewards, Clearing Mode, and submarine support.
 
 ### Exercise (PvP)
@@ -71,8 +75,11 @@ dispatch.
 Munitions / General, Medal, Fragment and Charge shop packs. The weekly and monthly free supply
 packs are granted; **real-money purchases are not supported**.
 
+### Cat Lodge (Meowfficers)
+Buying boxes, training, enhancements, locks, comf-fort, skills, talents.
+
 ### Others
-High-Efficiency Combat Logistics Plan, Public Guild, and the Mailbox.
+High-Efficiency Combat Logistics Plan, Operational Handover, Public Guild, and the Mailbox.
 
 ---
 
@@ -80,13 +87,6 @@ High-Efficiency Combat Logistics Plan, Public Guild, and the Mailbox.
 
 ### Juustagram
 Works, but a number of entries have no content yet.
-
-### Construction
-Light, Heavy and Special pools, medal exchange and ship retirement work. Wishing Well and the
-build event are inactive for now.
-
-### Operation Siren (World)
-Only a small part is present; the full map / zone / fleet loop is not implemented.
 
 ### Admin web API
 Optional and **off by default**. Server status, permissions, chapter state, player data and
@@ -99,20 +99,20 @@ implemented.
 
 - **Research Academy & Shipyard** — the PR/DR dock and research projects are implemented, but
   no ship has actually been produced through it yet.
-- **War Archives & Remaster**
+- **War Archives**
+- **Lecture Hall**
 
 ---
 
 ## Doesn't work
 
-- **Operational Handover** — stage clears are not registered yet
 - **Island Planner**
 - **Private Quarters** (3D dorm)
 - **Project Identity**
-- **Cat Lodge** (Meowfficers)
 - **META Lab**
 - **Guild** — only Public Guild is available
 - **Challenge Mode**
+- **Operation Siren**
 
 ---
 

@@ -6,21 +6,18 @@
 
 ## Features
 
-PrivateDock implements most of the core game systems. For a per-system breakdown of what
+PrivateDock implements most of the core game systems.
+
+Already works:
+- Secretary, Juustagram
+- Dock, Fleets (incl. submarines), Equipment, Meowfficers
+- Ships Build (with custom max orders), Requisition, Retire
+- Shops, Missions, Handbook, Tactical Classes, Dorm, Fleet Technology, Research Academy, Shipyard
+- Main Campaign, War Archives, Daily Raids, Exercises
+
+For a per-system breakdown of what
 works, what is only partly covered, and what is not implemented yet, see the
 **[Implementation Status](docs/STATUS.md)** page.
-
----
-
-## Architecture Highlights
-
-- **Asynchronous Event Loop**: Built on Python `asyncio` for high concurrency and low latency.
-- **Dynamic Protobuf Engine**: Dynamic generation of 1,700+ protobuf message types from binary descriptors without requiring compiled `.py` proto stubs.
-- **Dual Database Backends**:
-  - **SQLite** (default): Zero-configuration file-based database (`db/privatedock.db`), ideal for local or single-player setups.
-  - **PostgreSQL**: Production-grade engine with asynchronous connection pooling via `asyncpg`.
-  - Built-in SQL dialect translation layer and automated migrations.
-- **Stock Client Compatibility**: Works with the unmodified EN client via DNS/hosts redirection.
 
 ---
 
@@ -56,20 +53,15 @@ For full installation and configuration instructions, see the **[Installation Gu
 
 ---
 
-## Documentation
+## Architecture Highlights
 
-- **[Installation & Setup Guide](docs/INSTALL.md)**: Detailed requirements, directory layout, running flags, client connection methods, configuration reference, and troubleshooting.
-- **[Implementation Status](docs/STATUS.md)**: What is implemented, what is only partly covered, and what is missing — the detailed companion to the feature list above.
-
----
-
-## License
-
-PrivateDock is licensed under the **GNU Affero General Public License v3.0 or later** (AGPL-3.0-or-later) — see [LICENSE](LICENSE) for the full text.
-
-In short: you may use, modify, and distribute this software, including running it as a network service, as long as you make the complete corresponding source of any modified version available to its users under the same license.
-
-PrivateDock is an unofficial, non-commercial fan project. It is not affiliated with, endorsed by, or sponsored by the developers or publishers of Azur Lane.
+- **Asynchronous Event Loop**: Built on Python `asyncio` for high concurrency and low latency.
+- **Dynamic Protobuf Engine**: Dynamic generation of 1,700+ protobuf message types from binary descriptors without requiring compiled `.py` proto stubs.
+- **Dual Database Backends**:
+  - **SQLite** (default): Zero-configuration file-based database (`db/privatedock.db`), ideal for local or single-player setups.
+  - **PostgreSQL**: Production-grade engine with asynchronous connection pooling via `asyncpg`.
+  - Built-in SQL dialect translation layer and automated migrations.
+- **Stock Client Compatibility**: Works with the unmodified EN client via DNS/hosts redirection.
 
 ---
 

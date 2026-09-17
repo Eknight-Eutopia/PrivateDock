@@ -225,7 +225,7 @@ Redirect `blhxusgate.yo-star.com` to your server LAN IP address using one of the
    *(Example: `192.168.0.100 blhxusgate.yo-star.com`)*
 3. Apply changes and restart the game.
 
-**Without root** — AdAway also has a VPN-based mode (Android 5.0+). It starts a local VPN, intercepts DNS queries and answers them itself, so an entry pointing at your server works like a hosts line without touching the system:
+**Without root** — AdAway also has a VPN-based mode. It starts a local VPN, intercepts DNS queries and answers them itself, so an entry pointing at your server works like a hosts line without touching the system:
 1. Install AdAway and pick the VPN-based method during setup.
 2. Add the same entry, making sure it is created as a **redirect** to your LAN IP and not as a blocked host.
 3. Start the AdAway VPN service, then launch the game.
