@@ -332,8 +332,8 @@ def _submit_task_and_get_drops(client: Client, task_id: int, template: dict, tic
             if not _chapter_star_completed(commander_id, give_target):
                 return None, False
         elif sub_type == 1020 and give_target > 0 and target_num > 0 and int(template.get("type", 0) or 0) == 1:
-            # Scenario "Clear X-Y" missions (the official first-clear reward):
-            # only claimable once the stage's first full clear is on record.
+            # Scenario "Clear X-Y" missions (first-clear reward): only
+            # claimable once the stage's first full clear is on record.
             if not _chapter_cleared(commander_id, give_target):
                 return None, False
         elif 2000 <= sub_type < 3000:
@@ -419,7 +419,12 @@ def _get_main_task_ids() -> list:
     return ids
 
 
+_DAILY_TASK_IDS_CACHE = None
+
 def _get_daily_task_ids() -> list:
+    global _DAILY_TASK_IDS_CACHE
+    if _DAILY_TASK_IDS_CACHE is not None:
+        return _DAILY_TASK_IDS_CACHE
     ids = []
     entry = get_config_entry_sync("ShareCfg/gameset.json", "daily_task_new")
     if entry is not None:
@@ -429,6 +434,18 @@ def _get_daily_task_ids() -> list:
         desc = data.get("description", []) if isinstance(data, dict) else []
         if isinstance(desc, list):
             ids.extend(int(x) for x in desc)
+    try:
+        tpls = _all_task_templates()
+        for tid, t in tpls.items():
+            if isinstance(t, dict) and t.get("type") == 3:
+                itid = int(tid)
+                if itid not in ids:
+                    ids.append(itid)
+    except Exception:
+        for extra_id in (7210, 7211):
+            if extra_id not in ids:
+                ids.append(extra_id)
+    _DAILY_TASK_IDS_CACHE = ids
     return ids
 
 
@@ -1742,7 +1759,7 @@ def handle_submit_weekly_task_batch(buffer: bytes, client: Client) -> tuple[int,
     """Weekly "Collect All" (CS_20108 -> SC_20109). Submits every finished weekly
     sub-task in the request, cascading through all consecutive completed stages in
     each chain, accumulating pt and returning the first uncompleted sub-task for each
-    chain (or omitting it if the entire chain is finished). Matches official server."""
+    chain (or omitting it if the entire chain is finished)."""
     from src.protobuf import protobuf
     try:
         payload = protobuf.CS_20108()
@@ -2673,6 +2690,11 @@ def _equipment_rarity(equipment_id: int) -> int:
         if tpl is not None:
             d = tpl.data if isinstance(tpl.data, dict) else json.loads(tpl.data)
             rarity = int(d.get("rarity", 0) or 0)
+            if not rarity and d.get("base"):
+                base_tpl = get_config_entry_sync("sharecfgdata/equip_data_statistics.json", str(d.get("base")))
+                if base_tpl is not None:
+                    base_d = base_tpl.data if isinstance(base_tpl.data, dict) else json.loads(base_tpl.data)
+                    rarity = int(base_d.get("rarity", 0) or 0)
     except Exception:
         rarity = 0
     cache[equipment_id] = rarity

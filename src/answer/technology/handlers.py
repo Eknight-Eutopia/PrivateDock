@@ -298,8 +298,7 @@ def handle_finish_technology_research(buffer: bytes, client: Client) -> tuple[in
 
     response.result = TECHNOLOGY_OK
     # Catch-up bonus: 1 blueprint of the selected catch-up ship per completed
-    # project (official SC_63004 captures carry catchup_list with the target's
-    # strengthen_item x1), subject to the per-series obtain_max caps.
+    # project, subject to the per-series obtain_max caps.
     try:
         catchup_granted = grant_catchup_blueprints(state, 1)
         if catchup_granted:

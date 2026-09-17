@@ -331,6 +331,17 @@ def handle_finish_stage(
     drop_list = []
     extra_drop_list = []
     if session is not None:
+        try:
+            if getattr(session, "system", 0) == 1 and getattr(session, "created_at", None) is not None:
+                import time as _b_time
+                from src.misc.safe_ts import safe_ts
+                from src.answer.chapter.sortie_tracker import record_battle_overhead
+                battle_start = safe_ts(session.created_at, default=int(_b_time.time()))
+                combat_dur = int(getattr(payload, "total_time", 0))
+                record_battle_overhead(client.commander.commander_id, battle_start, combat_dur)
+        except Exception as _e:
+            log_event("Chapter/SortieTracker", "RecordBattleOverheadError", f"err={_e}", LOG_LEVEL_ERROR)
+
         # Include the mid-battle joiners in the writeback participant set so a
         # submarine group that actually fought consumes its ammo (and its ships'
         # HP is persisted) just like the surface fleet.
@@ -435,10 +446,9 @@ def handle_finish_stage(
     # battle's end oil in the SC_40004 exit callback. A PLAYERINFO push that
     # lands BEFORE SC_40004 sets the cache to server truth first, and the local
     # subtraction then runs on top of it — the displayed oil loses the end cost
-    # a second time (server charged 62, client showed -118). Official never
-    # pushes 11003 mid-session (login only, verified in the mitm captures);
-    # the client's local prediction stays exact because the server charges the
-    # same start/end formulas (src/answer/battle_oil.py).
+    # a second time. This never pushes 11003 mid-session (login only); the
+    # client's local prediction stays exact because the server charges the same
+    # start/end formulas (src/answer/battle_oil.py).
     if drop_list:
         from src.consts.drop_types import DROP_TYPE_SHIP
         _ship_granted = any(d.get("type") == DROP_TYPE_SHIP for d in drop_list)
@@ -1147,7 +1157,7 @@ def _wire_drop(item: dict) -> tuple[int, int, int]:
     """Convert a drops-dict entry into the DROPINFO shape the client credits.
 
     Resource-proxy virtuals (Coins 59001, Oil 59002, ...) are internal bookkeeping
-    only: official SC_40004 sends gold as {type:1, id:1} (resource), and a type-2
+    only: original SC_40004 sends gold as {type:1, id:1} (resource), and a type-2
     entry for 59001 makes the CLIENT file the "Coins" item into its local depot --
     the inventory contamination the server DB never has. Server-side granting is
     unaffected: _apply_drop_list already routes them through the add_item guard.
@@ -1250,12 +1260,11 @@ def _build_chapter_award_drops(
                 continue
             category = drop_rates.classify_category(drop_id)
             by_category.setdefault(category, []).append((drop_type, drop_id))
-    # Official grants gold from EVERY enemy fleet even when the fleet's
-    # award_display omits 59001 (mitm captures 2026-09: expedition 904030,
-    # whose display has no coin entry, dropped 13-25 gold in every clear).
-    # A word-marked coin entry rolls the word amount (4-4 boss 'Numerous':
-    # official 1091/1246); an unmarked one rolls the per-fleet-size coin_range
-    # from drop_rates_campaign.json via the category machinery below.
+    # Originally grants gold from EVERY enemy fleet even when the fleet's
+    # award_display omits 59001. A word-marked coin entry rolls the word
+    # amount (4-4 boss 'Numerous': originally ~ 1091/1246); an unmarked
+    # one rolls the per-fleet-size coin_range from drop_rates_campaign.json
+    # via the category machinery below.
     if coin_seen and display_coin_desc is not None:
         amt = _parse_award_display_desc(display_coin_desc, 2, 59001)
         if amt:
@@ -1808,7 +1817,7 @@ def _update_chapter_state_after_battle(commander_id: int, expedition_id: int, st
         writeback_changed = _apply_chapter_battle_writeback(current, stats_by_ship, ship_ids)
 
     # Server-driven reinforcement wave: spawn the next enemy/boss squad only
-    # after a REAL victory (won = score > 0). This mirrors official behaviour
+    # after a REAL victory (won = score > 0). This mirrors original behaviour
     # where reinforcements appear AFTER the player wins, not when the fleet
     # merely steps onto an enemy cell (act 8 / OpEnemyRound). On a defeat
     # (won=False) we neither disable the beaten cell nor grant any reward/exp.
@@ -1958,7 +1967,7 @@ def _update_chapter_progress_after_battle(commander_id: int, update: dict, score
         update["defeated"], score, init_ship_count,
         progress, "take_box_count",
     )
-    # Official one-time stage rewards are the chapter missions themselves: the
+    # Original one-time stage rewards are the chapter missions themselves: the
     # scenario "Clear X-Y" tasks (sub_type 1020, ids 4-67) and the branch
     # "Get 3 stars in stage X-Y" tasks (sub_type 1021, ids 3001+, target
     # chapter id). The player claims them from the Missions screen, so nothing

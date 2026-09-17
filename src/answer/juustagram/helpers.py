@@ -675,10 +675,10 @@ def build_juustagram_messages_for_ids(commander_id: int, ids: list) -> list:
                       f"uid={commander_id} mid={mid} no template row", LOG_LEVEL_ERROR)
             continue
         if not is_publishable_juustagram_template(template):
-            # Placeholder shells ship in the official EN config itself
-            # (ins_658..667: is_active=1 with past dates but no message/title/
-            # picture/npc content and empty language rows). The client asks for
-            # every is_active id on each login; skipping them here is expected,
+            # Placeholder shells ship in the EN config itself (ins_658..667:
+            # is_active=1 with past dates but no message/title/picture/npc
+            # content and empty language rows). The client asks for every
+            # is_active id on each login; skipping them here is expected,
             # not an error.
             contentless.append(mid)
             continue

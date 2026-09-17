@@ -338,7 +338,7 @@ def _apply_well_accrual(runtime: dict, templates: dict, commander_id: int, now_u
             runtime.get("oil_upgrade_complete_time", 0),
             oil_template,
         )
-        # Official semantics (client pushnotificationmgr.lua compares
+        # Original semantics (client pushnotificationmgr.lua compares
         # oilField < store): production stops once the well storage is full;
         # it only resumes after the player collects. Without this cap every
         # academy-screen open / login re-armed the accrual window and pending

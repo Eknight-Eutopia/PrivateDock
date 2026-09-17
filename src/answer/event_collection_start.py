@@ -146,9 +146,9 @@ def _do_start_collection(client: Client, row_id: int, ship_ids) -> Optional[Exce
         finish_time=finish_time,
     )
 
-    # Official replies to CS_13003 with SC_13004 alone (mitm capture 20260910:
-    # four dispatches -> four 2-byte SC_13004s, no SC_13011). The client already
-    # knows the commission it just dispatched; an SC_13011 here would only pollute
+    # Original replies to CS_13003 with SC_13004 alone (four dispatches -> four
+    # 2-byte SC_13004s, no SC_13011). The client already knows the commission
+    # it just dispatched; an SC_13011 here would only pollute
     # ChapterAutoProxy:RecordNewEventIds (the handover "new commissions" badge).
 
     msg = protobuf.SC_13004(result=0)

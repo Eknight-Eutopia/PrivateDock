@@ -33,7 +33,7 @@ def _gallery_task_ids(activity_id: int) -> list[int]:
 
 
 def _seed_gallery_tasks(commander_id: int, activity_id: int, now: int) -> list[int]:
-    """Accept ONLY day 1 of the activity's task groups (official gallery
+    """Accept ONLY day 1 of the activity's task groups (original gallery
     semantics: groups unlock one per calendar day from the personal start;
     further groups are accepted one per CS_11202 cmd=1 - see
     activity_operation._handle_task_list_sync). Idempotent for existing
@@ -107,11 +107,10 @@ def _push_task_sync_20003(client: Client, commander_id: int, task_ids: list[int]
     """Push the day's freshly-accepted commander_tasks rows as SC_20003.
 
     The client's TaskProxy adds activity-task VOs from SC_20003 (addActData,
-    setActId) - this is also how the OFFICIAL server delivers a gallery day's
-    tasks (capture 2026-09-05, activity 6021: SC_20003 with the day's two
-    tasks right after CS_11202). SC_20001 (initTaskInfo) sets no act id, so
-    it is the wrong channel for activity tasks. The ACTIVITYINFO.task_list
-    embedded in the SC_11201 push is ignored by the client's Activity VO."""
+    setActId) - this is also how originally delivers a gallery day's
+    tasks. SC_20001 (initTaskInfo) sets no act id, so it is the wrong channel
+    for activity tasks. The ACTIVITYINFO.task_list embedded in the SC_11201
+    push is ignored by the client's Activity VO."""
     if not task_ids:
         return
     try:
@@ -230,7 +229,7 @@ def handle_activity_permanent_start(buffer: bytes, client: Client) -> tuple[int,
                   f"failed to persist day state for {activity_id}: {e}",
                   LOG_LEVEL_WARN)
     # Push the day's rows (the client's TaskProxy learns them via addActData
-    # on SC_20003, exactly like the official server's handout).
+    # on SC_20003, exactly like the server's handout).
     _push_task_sync_20003(client, commander_id, _day_ids)
     # data3 = the day the sub-page renders (config_data[data3]); default 1 so
     # day 1 renders immediately after starting instead of a blank list.

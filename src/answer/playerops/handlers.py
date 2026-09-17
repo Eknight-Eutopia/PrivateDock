@@ -56,6 +56,10 @@ def handle_resources_info(_buffer: bytes, client: Client) -> tuple[int, int, Opt
         response.class_lv = runtime.get("class_room_level", 1)
         response.class_lv_up_time = 0
 
+        if hasattr(commander, "get_resource_count"):
+            cls.proficiency = int(commander.get_resource_count(10) or 0)
+            getattr(response, 'class').CopyFrom(cls)
+
         # The number of Tactical Class (skill class) slots the player currently
         # has. It starts at 2 and is expanded via the shop (cap 4). This is a
         # per-commander value persisted on the commanders row, NOT the count of

@@ -26,7 +26,10 @@ from .helpers import (
     get_chapter_drops, chapter_ambush_rand, CHAPTER_ATTACH_BOX, select_box_attachment_id,
     resolve_ambush_expedition,
     BOX_DROP, BOX_STRATEGY, BOX_AIRSTRIKE, BOX_ENEMY, BOX_SUPPLY, BOX_TORPEDO,
+    get_group_max_ammo,
 )
+from .commander_strike import evaluate_commander_preemptive_strikes
+from .submarine_strike import evaluate_submarine_auto_attacks
 from src.answer.battle_session import _resolve_chapter_award_drop, _apply_drop_list
 from src.orm.resource import has_enough_resource, consume_resource
 from src.orm.chapter_repair import get_daily_repair_count, increment_daily_repair_count, repair_limits
@@ -153,6 +156,11 @@ def handle_chapter_tracking(buffer: bytes, client: Client) -> tuple[int, int, Op
     state_bytes = current.SerializeToString()
     upsert_chapter_state(client.commander.commander_id, payload.id, state_bytes)
     ensure_chapter_progress(client.commander.commander_id, payload.id)
+    try:
+        from src.answer.chapter.sortie_tracker import start_chapter_sortie
+        start_chapter_sortie(client.commander.commander_id, payload.id)
+    except Exception as _e:
+        log_event("Chapter/SortieTracker", "StartError", f"err={_e}", LOG_LEVEL_ERROR)
 
     try:
         from src.orm.daily_expedition import (
@@ -243,8 +251,10 @@ def _process_box_effect(client: Client, current, group, pos, template, box_id: i
         group.step_count = 0
         return event_cell
     elif box_type == BOX_SUPPLY:
-        if group.bullet is not None and group.bullet < 5:
-            group.bullet = min(5, group.bullet + effect_id)
+        owned_ships_map = getattr(getattr(client, "commander", None), "owned_ships_map", None)
+        max_ammo = get_group_max_ammo(current, group, template, owned_ships_map)
+        if group.bullet is not None and group.bullet < max_ammo:
+            group.bullet = min(max_ammo, group.bullet + effect_id)
         return None
     # BOX_BARRIER (0) and any unknown type: no enemy, no reward.
     return None
@@ -345,6 +355,23 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
         # move_path[#move_path]).  Including the start cell was off by one.
         move_path = build_move_path(entered)
 
+        fleet_act_list = []
+        if ambush_cell is None and entered:
+            final_step = entered[-1]
+            _, target_cell = find_chapter_cell_at(current, final_step)
+            if target_cell is not None:
+                strikes = evaluate_commander_preemptive_strikes(client, current, group, target_cell)
+                if strikes:
+                    fleet_act_list.extend(strikes)
+                    map_update.append(target_cell)
+
+        sub_act_list = []
+        if ambush_cell is None:
+            sub_acts, sub_map_updates = evaluate_submarine_auto_attacks(client, current)
+            if sub_acts:
+                sub_act_list.extend(sub_acts)
+                map_update.extend(sub_map_updates)
+
         state_bytes = current.SerializeToString()
         upsert_chapter_state(client.commander.commander_id, current.id, state_bytes)
 
@@ -352,6 +379,10 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
         response.result = 0
         response.move_path.extend(move_path)
         response.map_update.extend(map_update)
+        if fleet_act_list:
+            response.fleet_act_list.extend(fleet_act_list)
+        if sub_act_list:
+            response.submarine_act_list.extend(sub_act_list)
         asyncio.create_task(client.send_message(13104, response))
         return 0, 13104, None
 
@@ -428,7 +459,8 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
             asyncio.create_task(client.send_message(13104, response))
             return 0, 13104, None
 
-        max_ammo = template.ammo_total
+        owned_ships_map = getattr(getattr(client, "commander", None), "owned_ships_map", None)
+        max_ammo = get_group_max_ammo(current, group, template, owned_ships_map)
         if max_ammo > group.bullet:
             refill = max_ammo - group.bullet
             if refill > cell.item_id:
@@ -576,11 +608,27 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
             try:
                 import time as _time
                 from src.orm.chapter_auto import upsert_chapter_auto_record
-                duration = max(1, int(_time.time()) - getattr(current, "time", 0))
+                from src.answer.chapter.sortie_tracker import calculate_effective_duration, finish_chapter_sortie
+                tmpl = load_chapter_template(current.id, getattr(current, "loop_flag", 0))
+                tmpl_time = getattr(tmpl, "time", 0) if tmpl else 0
+                due_time = getattr(current, "time", 0)
+                if tmpl_time > 0:
+                    start_time = due_time - tmpl_time
+                else:
+                    start_time = due_time
+                wall_clock_duration = max(1, int(_time.time()) - start_time)
+                duration = calculate_effective_duration(client.commander.commander_id, current.id, wall_clock_duration)
+                finish_chapter_sortie(client.commander.commander_id)
                 best = upsert_chapter_auto_record(client.commander.commander_id, 1, current.id, duration)
                 response.auto_battle_time_update = best
             except Exception as _e:
                 log_event("Chapter/AutoRecord", "Failed to record auto battle time", f"err={_e}", LOG_LEVEL_ERROR)
+        elif payload.group_id == 0:
+            try:
+                from src.answer.chapter.sortie_tracker import finish_chapter_sortie
+                finish_chapter_sortie(client.commander.commander_id)
+            except Exception:
+                pass
 
         asyncio.create_task(client.send_message(13104, response))
         return 0, 13104, None

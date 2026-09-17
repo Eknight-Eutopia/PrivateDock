@@ -763,26 +763,100 @@ def _load_ship_base_ammo(template_id: int) -> int:
     return ammo
 
 
+def _resolve_ship_template_id(ship_id: int, owned_ships_map: Optional[dict] = None) -> Optional[int]:
+    """Resolve an owned ship id to its template ship_id (from ship_data_statistics)."""
+    if owned_ships_map:
+        owned = owned_ships_map.get(ship_id) if hasattr(owned_ships_map, "get") else None
+        if owned is not None:
+            tpl = owned.get("ship_id") if isinstance(owned, dict) else getattr(owned, "ship_id", None)
+            if tpl is not None:
+                return int(tpl)
+    # DB fallback if not present in cache
+    try:
+        from src.db.session import get_sync_session
+        from sqlalchemy import text
+        with get_sync_session() as session:
+            row = session.execute(
+                text("SELECT ship_id FROM owned_ships WHERE id = :id AND deleted_at IS NULL"),
+                {"id": ship_id},
+            ).fetchone()
+            if row:
+                return int(row[0])
+    except Exception:
+        pass
+    return None
+
+
+def normal_team_starting_ammo(team, owned_ships_map, allowance: int) -> int:
+    """Starting `bullet` for a fresh normal (surface) group on the chapter map.
+
+    Mirrors the client's getFleetAmmo max for FleetType.Normal: the chapter
+    allowance (ammo_total) plus MAX of each ship's own ammo attribute
+    (model/vo/chaptercell/chapterfleet.lua getShipAmmo -> math.max).
+    Vestal / Akashi / repair ships give +1 ammo when limit broken.
+    """
+    bonus = 0
+    ship_list = getattr(team, "ship_list", None) or []
+    for ship_id in ship_list:
+        tpl_id = _resolve_ship_template_id(ship_id, owned_ships_map)
+        if tpl_id:
+            bonus = max(bonus, _load_ship_base_ammo(tpl_id))
+    return allowance + bonus
+
+
 def submarine_team_starting_ammo(team, owned_ships_map, allowance: int) -> int:
     """Starting `bullet` for a fresh submarine group on the chapter map.
 
     Mirrors the client's getFleetAmmo max for FleetType.Submarine: the chapter
-    allowance (ammo_submarine) plus every submarine's own ammo attribute.
+    allowance (ammo_submarine) plus every submarine's own ammo attribute
+    (model/vo/chaptercell/chapterfleet.lua getShipAmmo -> sum).
     ``owned_ships_map`` maps owned ship id -> owned ship record (dict or ORM
     object with ship_id = template id); when unavailable the allowance alone
     is used.
     """
     total = allowance
-    if not team.ship_list or not owned_ships_map:
-        return total
-    for ship_id in team.ship_list:
-        owned = owned_ships_map.get(ship_id) if hasattr(owned_ships_map, "get") else None
-        if owned is None:
-            continue
-        template_id = owned.get("ship_id") if isinstance(owned, dict) else getattr(owned, "ship_id", None)
-        if template_id:
-            total += _load_ship_base_ammo(int(template_id))
+    ship_list = getattr(team, "ship_list", None) or []
+    for ship_id in ship_list:
+        tpl_id = _resolve_ship_template_id(ship_id, owned_ships_map)
+        if tpl_id:
+            total += _load_ship_base_ammo(tpl_id)
     return total
+
+
+def get_group_max_ammo(current, group, template: ChapterTemplate, owned_ships_map=None) -> int:
+    """Compute maximum ammo capacity for a group on the chapter map.
+
+    Matches model/vo/chapterleveldata.lua getFleetAmmo:
+    - Normal fleet: template.ammo_total + max(ship.ammo)
+    - Submarine fleet: template.ammo_submarine + sum(ship.ammo)
+    - Support fleet: template.ammo_total
+    """
+    is_submarine = False
+    is_support = False
+    if current is not None:
+        if any(g.id == group.id for g in getattr(current, "submarine_group_list", [])):
+            is_submarine = True
+        elif any(g.id == group.id for g in getattr(current, "support_group_list", [])):
+            is_support = True
+
+    if is_support:
+        return template.ammo_total
+
+    ships = getattr(group, "ship_list", [])
+    if is_submarine:
+        total = template.ammo_submarine
+        for s in ships:
+            tpl_id = _resolve_ship_template_id(s.id, owned_ships_map)
+            if tpl_id:
+                total += _load_ship_base_ammo(tpl_id)
+        return total
+    else:
+        bonus = 0
+        for s in ships:
+            tpl_id = _resolve_ship_template_id(s.id, owned_ships_map)
+            if tpl_id:
+                bonus = max(bonus, _load_ship_base_ammo(tpl_id))
+        return template.ammo_total + bonus
 
 
 def build_groups_from_teams(teams: list, spawns: list, ammo):
@@ -804,7 +878,7 @@ def build_groups_from_teams(teams: list, spawns: list, ammo):
         group_id = team.id
         if group_id == 0:
             group_id = index + 1
-        # `ammo` may be a per-team callable (submarine groups compute their
+        # `ammo` may be a per-team callable (normal/submarine groups compute their
         # capacity from the fleet's ships) or a plain int for the others.
         team_ammo = ammo(team) if callable(ammo) else ammo
         g = protobuf.GROUPINCHAPTER_P13()
@@ -823,7 +897,7 @@ def build_groups_from_teams(teams: list, spawns: list, ammo):
     return groups, ship_count
 
 
-def build_groups_from_elite(group_ids: list, elite: list, spawns: list, ammo: int):
+def build_groups_from_elite(group_ids: list, elite: list, spawns: list, ammo):
     from src.protobuf import protobuf
     groups = []
     ship_count = 0
@@ -847,12 +921,13 @@ def build_groups_from_elite(group_ids: list, elite: list, spawns: list, ammo: in
             commanders.append(c)
         if group_id == 0:
             group_id = index + 1
+        team_ammo = ammo(elite_fleet) if callable(ammo) else ammo
         g = protobuf.GROUPINCHAPTER_P13()
         g.id = group_id
         g.ship_list.extend(ships)
         g.pos.CopyFrom(build_pos(spawn))
         g.step_count = 0
-        g.bullet = ammo
+        g.bullet = team_ammo
         g.start_pos.CopyFrom(build_pos(spawn))
         g.commander_list.extend(commanders)
         g.move_step_down = 0
@@ -879,7 +954,7 @@ def build_chapter_strategies(ids: list) -> list:
 def build_operation_buff_list(buff_id: int, item_id: int = 0) -> list:
     """Build the list of operation buffs for CURRENTCHAPTERINFO.operation_buff.
     For special operation items (like item 61001 High-Efficiency Combat Logistics Plan),
-    the official server sends all buffs from the item's usage_arg in SC_13102
+    originally sends all buffs from the item's usage_arg in SC_13102
     (e.g. [5, 8, 9, 47, 48] covering exp doubling, desc, extra drop, oil increase).
     The client relies on buff 8 (extra_drop) in operationBuffList to activate the
     Operation Bonus UI elements and headers in battle results.
@@ -929,7 +1004,10 @@ def build_current_chapter_info(template: ChapterTemplate, payload, operation_buf
     main_spawns = select_spawn_positions(grids, CHAPTER_ATTACH_BORN)
     sub_spawns = select_spawn_positions(grids, CHAPTER_ATTACH_BORN_SUB)
     cell_list = build_initial_chapter_cells(grids, template)
-    main_groups, main_count = build_groups_from_teams(payload.fleet.main_team, main_spawns, template.ammo_total)
+    main_groups, main_count = build_groups_from_teams(
+        payload.fleet.main_team, main_spawns,
+        lambda team: normal_team_starting_ammo(team, owned_ships_map, template.ammo_total),
+    )
     sub_groups, sub_count = build_groups_from_teams(
         payload.fleet.submarine_team, sub_spawns,
         lambda team: submarine_team_starting_ammo(team, owned_ships_map, template.ammo_submarine),
@@ -1230,6 +1308,9 @@ def calculate_ship_properties_air_dodge(owned, owner_id: int):
     equip_air, equip_dodge = equipment_attribute_additions(owner_id, ship_id)
     air += equip_air
     dodge += equip_dodge
+    sp_air, sp_dodge = spweapon_attribute_additions(owner_id, ship_id)
+    air += sp_air
+    dodge += sp_dodge
     return air, dodge
 
 
@@ -1297,6 +1378,57 @@ def equipment_attribute_additions(owner_id: int, ship_id: int):
     return air_add, dodge_add
 
 
+def spweapon_attribute_additions(owner_id: int, ship_id: int) -> tuple[float, float]:
+    if owner_id <= 0 or ship_id <= 0:
+        return 0.0, 0.0
+    from src.orm.spweapon import list_owned_sp_weapons_sync
+    try:
+        sp_weapons = list_owned_sp_weapons_sync(owner_id)
+    except Exception:
+        return 0.0, 0.0
+    equipped = None
+    for sp in sp_weapons:
+        sid = getattr(sp, "equipped_ship_id", None) or (sp.get("equipped_ship_id") if isinstance(sp, dict) else 0)
+        if sid == ship_id:
+            equipped = sp
+            break
+    if not equipped:
+        return 0.0, 0.0
+    template_id = getattr(equipped, "template_id", None) or (equipped.get("template_id") if isinstance(equipped, dict) else 0)
+    attr_1_val = getattr(equipped, "attr_1", None) or (equipped.get("attr_1") if isinstance(equipped, dict) else 0) or 0
+    attr_2_val = getattr(equipped, "attr_2", None) or (equipped.get("attr_2") if isinstance(equipped, dict) else 0) or 0
+    entry = _get_config_entry("sharecfgdata/spweapon_data_statistics.json", str(template_id))
+    if not entry:
+        return 0.0, 0.0
+    base_id = entry.get("base")
+    base_entry = _get_config_entry("sharecfgdata/spweapon_data_statistics.json", str(base_id)) if base_id else None
+
+    def _resolve(key):
+        val = entry.get(key)
+        if val is not None:
+            return val
+        if base_entry is not None:
+            return base_entry.get(key)
+        return None
+
+    a1 = _resolve("attribute_1")
+    v1 = (_parse_float(_resolve("value_1")) or 0.0) + float(attr_1_val)
+    a2 = _resolve("attribute_2")
+    v2 = (_parse_float(_resolve("value_2")) or 0.0) + float(attr_2_val)
+
+    air_add = 0.0
+    dodge_add = 0.0
+    if a1 == "air":
+        air_add += v1
+    elif a1 == "dodge":
+        dodge_add += v1
+    if a2 == "air":
+        air_add += v2
+    elif a2 == "dodge":
+        dodge_add += v2
+    return air_add, dodge_add
+
+
 def _get_fleet_equip_max_extra(group, client, param_key: str) -> float:
     if group is None or client is None or client.commander is None:
         return 0
@@ -1330,15 +1462,31 @@ def load_equip_data_statistics(equip_id: int) -> Optional[EquipDataStatisticsEnt
     entry = _get_config_entry("sharecfgdata/equip_data_statistics.json", str(equip_id))
     if entry is None:
         return None
+    base_id = entry.get("base")
+    base_entry = _get_config_entry("sharecfgdata/equip_data_statistics.json", str(base_id)) if base_id else None
+
     stats = EquipDataStatisticsEntry()
     stats.id = entry.get("id", 0)
-    stats.attribute_1 = entry.get("attribute_1")
-    stats.value_1 = entry.get("value_1")
-    stats.attribute_2 = entry.get("attribute_2")
-    stats.value_2 = entry.get("value_2")
-    stats.attribute_3 = entry.get("attribute_3")
-    stats.value_3 = entry.get("value_3")
-    stats.equip_parameters = entry.get("equip_parameters") or {}
+
+    def _resolve(key):
+        val = entry.get(key)
+        if val is not None:
+            return val
+        if base_entry is not None:
+            return base_entry.get(key)
+        return None
+
+    stats.attribute_1 = _resolve("attribute_1")
+    stats.value_1 = _resolve("value_1")
+    stats.attribute_2 = _resolve("attribute_2")
+    stats.value_2 = _resolve("value_2")
+    stats.attribute_3 = _resolve("attribute_3")
+    stats.value_3 = _resolve("value_3")
+
+    params = entry.get("equip_parameters")
+    if not params and base_entry is not None:
+        params = base_entry.get("equip_parameters")
+    stats.equip_parameters = params or {}
     return stats
 
 

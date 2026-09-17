@@ -56,6 +56,26 @@ def current_weekly_reset_unix(now: Optional[datetime] = None) -> int:
     return weekly_window(now).key
 
 
+def guild_store_window(now: Optional[datetime] = None) -> Window:
+    now_dt = _normalize_now(now)
+    location = _current_region_location()
+    local = now_dt.astimezone(location)
+    # Azur Lane Guild Shop refreshes twice a week on Monday (1) and Friday (5) at 00:00 server time.
+    # Python weekday(): Monday=0, Tuesday=1, Wednesday=2, Thursday=3, Friday=4, Saturday=5, Sunday=6.
+    local_midnight = datetime(local.year, local.month, local.day, 0, 0, 0, 0, location)
+    if local.weekday() < 4:
+        # Monday (0) to Thursday (3): window started on Monday, ends Friday
+        start_local = local_midnight - timedelta(days=local.weekday())
+        end_local = start_local + timedelta(days=4)
+    else:
+        # Friday (4) to Sunday (6): window started on Friday, ends next Monday
+        start_local = local_midnight - timedelta(days=local.weekday() - 4)
+        end_local = start_local + timedelta(days=3)
+    start = start_local.astimezone(timezone.utc)
+    end = end_local.astimezone(timezone.utc)
+    return Window(start=start, end=end, key=int(start.timestamp()))
+
+
 def current_daily_reset_unix(now: Optional[datetime] = None) -> int:
     return daily_window(now).key
 

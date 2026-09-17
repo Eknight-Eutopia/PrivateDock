@@ -263,10 +263,10 @@ def _ensure_manual_tasks(client, store, commander_id, now, push_add=False):
     - Tasks not yet in the DB are created IN-PROGRESS (progress=0, submit_time=0).
       They advance through normal gameplay via the emit_task_progress pipeline, so
       the client shows genuine progress bars instead of a false "completed".
-    - Tasks already submitted (submit_time != 0, e.g. claimed on the official
-      account) are left as-is so the client shows the correct "claimed" state.
-      We deliberately do NOT re-open them, otherwise the client auto-claims them
-      again on every login and the reward would be granted repeatedly.
+    - Tasks already submitted (submit_time != 0) are left as-is so the client
+      shows the correct "claimed" state. We deliberately do NOT re-open them,
+      otherwise the client auto-claims them again on every login and the reward
+      would be granted repeatedly.
     - Milestones complete only when enough of their target page's sub-tasks have
       genuinely reached target progress, so pages unlock as the player progresses.
       The per-task award is granted when the player claims via CS_20005.

@@ -87,10 +87,10 @@ def _do_finish_collection(client: Client, row_id: int) -> Optional[Exception]:
         except Exception as e:
             return e
 
-    # The wiki: "A new Commission is generated when a Daily is completed."
-    # Official delivers the replacement inside SC_13006.new_collection (mitm
-    # capture 20260910), which the client applies silently — no eventForMsg,
-    # so no "Urgent Commission!" msgbox for a plain daily card.
+    # Wiki: "A new Commission is generated when a Daily is completed."
+    # Originally delivers the replacement inside SC_13006.new_collection,
+    # which the client applies silently — no eventForMsg, so no "Urgent
+    # Commission!" msgbox for a plain daily card.
     new_rows: list = []
     try:
         from src.answer.event_collection_spawn import spawn_daily_on_complete_sync

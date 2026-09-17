@@ -80,9 +80,14 @@ def _bump_count_map(commander_id, map_attr: str, key, count, id_key: str) -> Non
         return
     entry = mapping.get(key)
     if entry is None:
-        mapping[key] = {id_key: key, "count": count}
+        if count > 0:
+            mapping[key] = {id_key: key, "count": count}
     else:
-        entry["count"] = entry.get("count", 0) + count
+        new_count = entry.get("count", 0) + count
+        if new_count <= 0:
+            mapping.pop(key, None)
+        else:
+            entry["count"] = new_count
 
 
 def _bump_amount_map(commander_id, map_attr: str, key, amount, id_key: str) -> None:

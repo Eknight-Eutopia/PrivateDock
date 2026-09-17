@@ -22,25 +22,48 @@ async def load_item_usage_exp(item_id: int) -> int:
     except Exception:
         return 0
 
-    if entry is None:
-        return 0
-    data = entry.data
-    if not isinstance(data, dict):
-        return 0
-    usage_arg = data.get("usage_arg")
-    if usage_arg is None:
-        return 0
-    if isinstance(usage_arg, list):
-        for v in usage_arg:
+    if entry is not None:
+        data = entry.data
+        if isinstance(data, str):
+            import json
             try:
-                iv = int(v)
-            except (ValueError, TypeError):
-                continue
-            if iv > 0:
-                return iv
-        return 0
+                data = json.loads(data)
+            except Exception:
+                data = None
+        if isinstance(data, dict):
+            usage_arg = data.get("usage_arg")
+            if isinstance(usage_arg, list):
+                for v in usage_arg:
+                    try:
+                        iv = int(v)
+                    except (ValueError, TypeError):
+                        continue
+                    if iv > 0:
+                        return iv
+            elif usage_arg is not None:
+                try:
+                    iv = int(usage_arg)
+                    if iv > 0:
+                        return iv
+                except (ValueError, TypeError):
+                    pass
+
+    # Fallback to gameset technology_catchup_itemid for catchup items (e.g. 20101 -> 10000)
     try:
-        iv = int(usage_arg)
-    except (ValueError, TypeError):
-        return 0
-    return iv if iv > 0 else 0
+        gameset = get_config_entry("ShareCfg/gameset.json", "technology_catchup_itemid")
+    except Exception:
+        gameset = None
+    if gameset is not None:
+        data = gameset.data
+        if isinstance(data, str):
+            import json
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = None
+        if isinstance(data, dict):
+            for pair in data.get("description") or []:
+                if isinstance(pair, list) and len(pair) >= 2 and int(pair[0] or 0) == item_id:
+                    return int(pair[1] or 0)
+
+    return 0

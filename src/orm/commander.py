@@ -508,6 +508,7 @@ class Commander(Base):
             "max_level": getattr(obj, "max_level", 100) or 100,
             "is_locked": bool(getattr(obj, "is_locked", False)),
             "propose": bool(getattr(obj, "propose", False)),
+            "common_flag": bool(getattr(obj, "common_flag", False)),
             "create_time": getattr(obj, "create_time", None),
         }
         if hasattr(self, "owned_ships_map"):
@@ -640,13 +641,14 @@ class Commander(Base):
                 ).order_by(OwnedShip.id)
             ).scalars().all())
             self.owned_ships_map = {}
-            for row in session.execute(text("SELECT id, owner_id, ship_id, level, energy, state, state_info1, intimacy, exp, surplus_exp, max_level, is_locked, propose, create_time FROM owned_ships WHERE owner_id = :cid AND deleted_at IS NULL"), {"cid": self.commander_id}).fetchall():
+            for row in session.execute(text("SELECT id, owner_id, ship_id, level, energy, state, state_info1, intimacy, exp, surplus_exp, max_level, is_locked, propose, create_time, common_flag FROM owned_ships WHERE owner_id = :cid AND deleted_at IS NULL"), {"cid": self.commander_id}).fetchall():
                 self.owned_ships_map[row[0]] = {
                     "id": row[0], "owner_id": row[1], "ship_id": row[2],
                     "level": row[3], "energy": row[4], "state": row[5],
                     "state_info1": row[6], "intimacy": row[7], "exp": row[8],
                     "surplus_exp": row[9], "max_level": row[10], "is_locked": row[11],
                     "propose": row[12], "create_time": row[13],
+                    "common_flag": row[14],
                 }
             from src.orm.item import list_commander_items_sync
             self.items_map = {

@@ -442,7 +442,7 @@ async def handle_public_guild_commit_donate(buffer: bytes, client) -> tuple:
         add_resource(commander_id, GUILD_COIN_RES, award)
 
     new_count = info["donate_count"] + 1
-    # Official behavior: a successful contribution re-rolls the WHOLE offer
+    # Original behavior: a successful contribution re-rolls the WHOLE offer
     # set, so each of the day's attempts is made against a fresh menu of
     # `contribution_task_num` offers (all three Logistics cards change).
     tasks = _generate_donate_tasks(commander_id, _day_key(), max_cnt, new_count)

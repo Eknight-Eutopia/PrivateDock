@@ -9,30 +9,14 @@ from typing import Optional
 
 from src.orm import event_collection as ec
 
-# Wiki ("Daily Commissions"): "Four Daily Commissions and four Rollover
-# Commissions can exist at any given time" — 8 cards max on the daily board.
 DAILY_POOL_SIZE = 8
 
-# Wiki: "The first 10 daily commissions generated in a day will be of [the
-# Daily Resource Extraction] type. After the daily resource extraction
-# Commissions for the day have been exhausted, these extra Commissions will be
-# generated instead." The counter is derived from event_collections.spawn_time
-# (see _daily_resource_generated_today_sync), so no extra per-day state exists.
 DAILY_RESOURCE_EXTRACTION_PER_DAY = 10
 
-# Wiki ("Night Commissions"): "Five hours before the daily reset, four of
-# these commissions will automatically appear in the Urgent tab."
 NIGHT_COMMISSIONS_PER_WINDOW = 4
 
-# Wiki ("Urgent Commissions"): "When finishing a Campaign battle, there is a
-# chance for one of these Commissions to appear. They disappear after a
-# certain amount of time." Official chance is not published; measured from the
-# official mitm captures (2026-09-12): 2 SC_13011 urgent pushes over 74
-# campaign battles (capture_20260905: 1/49, capture_20260910: 1/19) ≈ 2.7% per
-# victorious battle — the same aggregate as ~16% per 6-battle sortie. The old
-# 15% per battle was ~5x official and flooded the Urgent tab (owner report).
 URGENT_SPAWN_CHANCE_PERCENT = 3
-# Safety cap so an unlucky streak of battles can not flood the urgent tab.
+
 URGENT_ACTIVE_CAP = 5
 # Shelf life when the template carries no `time` of its own.
 URGENT_FALLBACK_EXPIRE_SECONDS = 2 * 3600
@@ -270,12 +254,12 @@ def refresh_commissions_sync(client) -> list:
     Called on board open (SC_13002) and on the client's flush (CS_13009).
     Returns the commander's current commission rows.
 
-    Does NOT push SC_13011 (official does not — mitm capture 20260910: login is
-    SC_13001+SC_13002 only, and the CS_13009 flush reply SC_13010 already
-    carries the full list, which the client applies via EventProxy:updateAll).
-    SC_13011 is reserved for the mid-session urgent spawn after a campaign
-    battle victory — the only push that legitimately triggers the client's
-    "Urgent Commission: <title>!" msgbox (eventForMsg).
+    Does NOT push SC_13011 (originally does not: login is SC_13001+SC_13002 only
+    , and the CS_13009 flush reply SC_13010 already carries the full list, which
+    the client applies via EventProxy:updateAll). SC_13011 is reserved for the
+    mid-session urgent spawn after a campaign battle victory — the only push
+    that legitimately triggers the client's "Urgent Commission: <title>!"
+    msgbox (eventForMsg).
 
     NOTE: the client renders each commission by looking up
     `pg.collection_template[id]`, so the wire `id` is the *template* id
@@ -343,16 +327,16 @@ def refresh_commissions_sync(client) -> list:
 
 
 def spawn_daily_on_complete_sync(client) -> list:
-    """The wiki: "A new Commission is generated when a Daily is completed."
+    """Wiki: "A new Commission is generated when a Daily is completed."
     Spawn one extra daily card after a successful collection (also keeps the
     exactly-one Major invariant). The caller delivers the new rows to the
     client inside SC_13006.new_collection — official never pushes SC_13011 for
-    a replacement daily (mitm capture 20260910: four CS_13005 collects each
-    answered by SC_13006 alone, carrying new_collection; SC_13011 only ever
-    follows a campaign battle victory). Pushing it here would fire the
-    client's "Urgent Commission: <title>!" msgbox (levelmediator2
-    OnEventUpdate -> event_special_update) for a plain daily card.
-    Returns the newly spawned rows."""
+    a replacement daily (four CS_13005 collects each answered by SC_13006
+    alone, carrying new_collection; SC_13011 only ever follows a campaign
+    battle victory). Pushing it here would fire the client's "Urgent
+    Commission: <title>!" msgbox (levelmediator2 OnEventUpdate ->
+    event_special_update) for a plain daily card. Returns the newly spawned
+    rows."""
     cid = client.commander.commander_id
     level = getattr(client.commander, "level", 1) or 1
     rows = ec.list_commissions_sync(cid)

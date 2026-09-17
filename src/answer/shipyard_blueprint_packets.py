@@ -412,13 +412,14 @@ async def handle_use_tech_speedup_item(
     task_id = int(payload.task_id or 0)
     number = int(payload.number or 0)
 
-    if blueprint_id == 0 or item_id == 0 or task_id == 0 or number == 0:
+    if blueprint_id == 0 or item_id == 0 or task_id == 0 or number <= 0:
         await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
         return 0, PACKET_ID, None
 
     from .shipyard_blueprint_helpers import (
         SHIPYARD_RESULT_OK, SHIPYARD_RESULT_NO_ITEMS,
         ensure_commander_loaded_for_shipyard,
+        is_dev_chain_task_open,
     )
 
     err = ensure_commander_loaded_for_shipyard(client.commander)
@@ -430,7 +431,7 @@ async def handle_use_tech_speedup_item(
         await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
         return 0, PACKET_ID, None
 
-    # The catch-up item id per blueprint version comes from gameset
+    # The catch-up item id and exp per blueprint version come from gameset
     # technology_catchup_itemid.description ([[20101, 10000], ...] by version).
     from src.orm.config_entry import get_config_entry_sync
     try:
@@ -438,13 +439,25 @@ async def handle_use_tech_speedup_item(
     except Exception:
         gameset = None
     catchup_item_id = 0
+    catchup_exp = 0
     version = int(cfg.get("blueprint_version", 0) or 0)
-    if gameset is not None and isinstance(gameset.data, dict):
-        desc = gameset.data.get("description") or []
-        if isinstance(desc, list) and 0 < version <= len(desc):
-            pair = desc[version - 1]
-            if isinstance(pair, list) and pair:
-                catchup_item_id = int(pair[0] or 0)
+    if gameset is not None:
+        data = gameset.data
+        if isinstance(data, str):
+            import json
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = None
+        if isinstance(data, dict):
+            desc = data.get("description") or []
+            if isinstance(desc, list) and 0 < version <= len(desc):
+                pair = desc[version - 1]
+                if isinstance(pair, list):
+                    if len(pair) >= 1:
+                        catchup_item_id = int(pair[0] or 0)
+                    if len(pair) >= 2:
+                        catchup_exp = int(pair[1] or 0)
     if item_id != catchup_item_id:
         await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
         return 0, PACKET_ID, None
@@ -454,12 +467,21 @@ async def handle_use_tech_speedup_item(
         await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
         return 0, PACKET_ID, None
 
-    # Per-item exp = first usage_arg of the catch-up item.
-    from src.orm.item_usage_config import load_item_usage_exp
-    try:
-        item_exp = await load_item_usage_exp(item_id)
-    except Exception:
-        item_exp = 0
+    cid = client.commander.commander_id
+    now = int(time.time())
+
+    # Task must be open and not already submitted
+    if is_dev_chain_task_open(cid, task_id, now) is False:
+        await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
+        return 0, PACKET_ID, None
+
+    item_exp = catchup_exp
+    if item_exp <= 0:
+        from src.orm.item_usage_config import load_item_usage_exp
+        try:
+            item_exp = await load_item_usage_exp(item_id)
+        except Exception:
+            item_exp = 0
     if item_exp <= 0:
         await client.send_message(PACKET_ID, protobuf.SC_63211(result=1))
         return 0, PACKET_ID, None
@@ -469,8 +491,16 @@ async def handle_use_tech_speedup_item(
         entry_tpl = get_config_entry_sync("sharecfgdata/task_data_template.json", str(task_id))
     except Exception:
         entry_tpl = None
-    if entry_tpl is not None and isinstance(entry_tpl.data, dict):
-        target_num = int(entry_tpl.data.get("target_num", 0) or 0)
+    if entry_tpl is not None:
+        tpl_data = entry_tpl.data
+        if isinstance(tpl_data, str):
+            import json
+            try:
+                tpl_data = json.loads(tpl_data)
+            except Exception:
+                tpl_data = None
+        if isinstance(tpl_data, dict):
+            target_num = int(tpl_data.get("target_num", 0) or 0)
 
     delta = number * item_exp
 
@@ -479,8 +509,6 @@ async def handle_use_tech_speedup_item(
             await client.send_message(PACKET_ID, protobuf.SC_63211(result=SHIPYARD_RESULT_NO_ITEMS))
             return 0, PACKET_ID, None
         client.commander.consume_item(item_id, number)
-        cid = client.commander.commander_id
-        now = int(time.time())
         if target_num > 0:
             upsert_task_progress_least(cid, task_id, delta, target_num, now)
             await _push_task_rows(client, cid, [task_id])

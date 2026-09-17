@@ -4,7 +4,7 @@ The EN client reads Specialized Cores (item 59010, the real item behind the
 virtual proxy 59011) from ``BagProxy:GetLimitCntById(59010)`` for the UR
 exchange page, overflow warnings, and the monthly "obtain X cores" tasks. That
 count is tracked here, bucketed by region-local month so it naturally resets
-each month (matching the official monthly tally / 5000 cap display). Only the
+each month (matching the original monthly tally / 5000 cap display). Only the
 Specialized Core uses this mechanism in the current client.
 """
 

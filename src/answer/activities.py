@@ -316,7 +316,7 @@ def handle_activities(_buffer: bytes, client: Client) -> tuple[int, int, Optiona
         if template.type == 71:
             # Fresh Tech Catchup (Training Camp / Dev Missions). The client derives
             # phase tabs + finished phases from THIS activity's state:
-            #   data1     = current phase id (official fresh default: 1)
+            #   data1     = current phase id (default: 1)
             #   data2     = 1 once the first phase has been started (CS_11202 cmd=3)
             #   data1_list= ids of COMPLETED phases (CS_11202 cmd=1 advances)
             # A phase id present in data1_list renders its cumulative task as

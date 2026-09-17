@@ -102,7 +102,7 @@ def upsert_chapter_auto_record(commander_id: int, type_: int, chapter_id: int, s
             session.commit()
             return seconds
 
-        if rec.seconds == 0 or seconds < rec.seconds:
+        if rec.seconds <= 1 or seconds < rec.seconds:
             rec.seconds = seconds
             session.commit()
             return seconds
@@ -153,8 +153,29 @@ def clear_chapter_auto_battles(commander_id: int) -> None:
 # ── Chapter Auto Tickets ──
 
 
+def _migrate_legacy_handover_items(commander_id: int) -> None:
+    """Migrate any Handover Permit items previously stored in commander_items."""
+    with get_sync_session() as session:
+        rows = session.execute(
+            text("SELECT item_id, count FROM commander_items WHERE commander_id = :cid AND item_id IN (68700, 68701, 68702)"),
+            {"cid": commander_id},
+        ).fetchall()
+        if not rows:
+            return
+        session.execute(
+            text("DELETE FROM commander_items WHERE commander_id = :cid AND item_id IN (68700, 68701, 68702)"),
+            {"cid": commander_id},
+        )
+        session.commit()
+    from src.orm.item import add_item
+    for item_id, count in rows:
+        if count > 0:
+            add_item(commander_id, item_id, count)
+
+
 def get_chapter_auto_tickets(commander_id: int, ticket_type: int = 1) -> list[ChapterAutoTicket]:
     """Returns unexpired tickets for commander, sorted by expire_time ascending."""
+    _migrate_legacy_handover_items(commander_id)
     now_ts = int(local_now().timestamp())
     with get_sync_session() as session:
         result = session.execute(

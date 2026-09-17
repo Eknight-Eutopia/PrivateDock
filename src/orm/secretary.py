@@ -1,4 +1,4 @@
-"""Secretary affinity tick (official server mechanic).
+"""Secretary affinity tick.
 
 The ship set as the MAIN secretary (leftmost slot, ``secretary_position = 0``)
 gains 1 affinity point every 300-320 minutes (randomized per tick). Gain stops
@@ -71,7 +71,7 @@ def _romance_cap_units() -> int:
     """Secretary affinity cap in DB intimacy units.
 
     Hook for romance events: during those events gain over 90 affinity is
-    possible (the official rate may be lower than normal). No EN romance-event
+    possible (the original rate may be lower than normal). No EN romance-event
     config is wired yet, so the default cap (90 affinity = 9000 units) applies.
     Consult the active activity configs here when one is added.
     """

@@ -377,8 +377,12 @@ def _sync_set_ship_favorite(ship, flag) -> None:
     with get_sync_session() as session:
         obj = session.get(OwnedShip, ship_id)
         if obj is not None:
-            obj.is_locked = bool(flag)
+            obj.common_flag = bool(flag)
             session.commit()
+    if isinstance(ship, dict):
+        ship["common_flag"] = bool(flag)
+    elif hasattr(ship, "common_flag"):
+        ship.common_flag = bool(flag)
 
 def _sync_update_owned_ship(_commander, owned_id: int, **kwargs) -> None:
     with get_sync_session() as session:

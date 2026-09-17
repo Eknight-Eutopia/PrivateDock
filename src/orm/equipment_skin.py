@@ -3,8 +3,8 @@
 The client gates skin application on `SC_14101.equip_skin_list[].count >= 1`
 (`EquipmentProxy.getEquipmnentSkinById`) and mirrors count changes locally
 after each CS_12036 success (apply consumes the new skin, the previous skin is
-returned). Official captures (`capture_20260905_214320.log`) send only OWNED
-skins with real counts — not the whole template table with count=0.
+returned). Originally send only OWNED skins with real counts — not the whole
+template table with count=0.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Per-battle fleet oil charging — mirrors the official client formulas.
+"""Per-battle fleet oil charging — mirrors the original client formulas.
 
 Client reference (EN Lua):
 - ``mod/battle/command/gate/battlegatescenario.lua`` — Entrance charges the

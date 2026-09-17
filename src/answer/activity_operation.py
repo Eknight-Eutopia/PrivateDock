@@ -746,10 +746,10 @@ def _unlocked_day( commander_id: int, activity_id: int, groups: list,
     gated by one group per REGIONAL calendar day since the personal start.
 
     The anchor lives in activity_store_states.data2 (the day-1 task accept
-    time; 0 = no run yet -> day 1). This mirrors the official server (capture
-    2026-09-05, activity 6021): the day counter advances by the calendar, NOT
-    by task completion - a returning player catches up one missed group per
-    CS_11202 cmd=1, and can never receive more groups than days elapsed
+    time; 0 = no run yet -> day 1). This mirrors the official server:
+    the day counter advances by the calendar, NOT by task completion -
+    a returning player catches up one missed group per CS_11202 cmd=1,
+    and can never receive more groups than days elapsed
     ("Takes at least N days to complete")."""
     anchor = 0
     try:
@@ -771,8 +771,7 @@ def _handle_task_list_sync(
 ) -> tuple[int, int, Optional[Exception]]:
     """CS_11202 for TASK_LIST (type 18) / TASK_RES (type 40) activities.
 
-    Official semantics (capture 2026-09-05, activity 6021 "Spring Breeze
-    Leisure"): the day counter advances by the calendar from the player's
+    Original semantics: the day counter advances by the calendar from the player's
     personal start, NOT by task completion. On cmd=1 the server accepts at
     most ONE not-yet-accepted group of tasks (the earliest unlocked one) and
     pushes exactly those rows via SC_20003; the SC_11203 reply itself carries
@@ -826,8 +825,8 @@ def _handle_task_list_sync(
     # earlier group is fully claimed AND it is calendar-unlocked. Capture
     # 2026-09-05 (activity 6021): each handout of day N+1 followed the CS_20005
     # claims of BOTH day-N tasks (35264/35265 -> day 5, 35266/35267 -> day 6,
-    # 35268/35269 -> day 7) - the official server never grants a group while
-    # the previous one is unfinished, even inside the unlocked window. A group
+    # 35268/35269 -> day 7) - originally never grants a group while the
+    # previous one is unfinished, even inside the unlocked window. A group
     # that is already accepted but not fully claimed stays the "current" day
     # (data3) and gates the next handout.
     newly: list[int] = []
@@ -889,7 +888,7 @@ def _handle_task_list_sync(
     except Exception:
         pass
 
-    # Official reply shape: SC_20003 carries the day's rows (the client's
+    # Original reply shape: SC_20003 carries the day's rows (the client's
     # TaskProxy adds them via addActData); SC_11203 is result-only.
     # SC_20003.info is TASK_ADD (same id/progress/accept_time/submit_time
     # fields as TASKINFO, but its own message type). The day's rows are

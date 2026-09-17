@@ -328,7 +328,7 @@ async def handle_dorm_food_data(
     # fire-and-forget 30-min poll, so skip parsing entirely.
     #
     # This poll must roll ONLY pop events (hearts/coins). Exp/food settlement
-    # stays exclusive to CS_19026: official SC_19010 carries ONLY pop_list, so
+    # stays exclusive to CS_19026: original SC_19010 carries ONLY pop_list, so
     # anything settled here is invisible to the client -- food would drain
     # silently (client only calls consumeFood on the SC_19027 reply) and exp
     # parked in state_info2 would pair with the wrong "snacks used" number in

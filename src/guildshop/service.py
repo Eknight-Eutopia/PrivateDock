@@ -7,7 +7,7 @@ from typing import Optional
 from src.db.store import get_default_store
 from src.orm.config_entry import fetch_config_entry_data, fetch_config_entries_data
 from src.shopreset.framework import deterministic_seed
-from src.shopreset.framework import daily_window as _daily_window
+from src.shopreset.framework import guild_store_window as _guild_store_window
 from src.rng.rng import LockedRand
 
 GUILD_STORE_CONFIG_CATEGORY = "ShareCfg/guild_store.json"
@@ -24,6 +24,8 @@ class StoreEntry:
     id: int = 0
     weight: int = 0
     goods_purchase_limit: int = 0
+    ensure: int = 0
+    order: int = 0
 
 
 @dataclass
@@ -70,22 +72,19 @@ def load_config() -> Optional[Config]:
             id=data.get("id", 0),
             weight=data.get("weight", 0),
             goods_purchase_limit=data.get("goods_purchase_limit", 0),
+            ensure=data.get("ensure", 0),
+            order=data.get("order", 0),
         )
         if entry.id == 0:
             continue
         entries.append(entry)
 
     goods_count_entry = _get_guild_set_entry("store_goods_quantity")
-    store_refresh_entry = _get_guild_set_entry("store_refresh")
+    store_reset_time_entry = _get_guild_set_entry("store_reset_time")
     store_reset_cost_entry = _get_guild_set_entry("store_reset_cost")
 
     goods_count = goods_count_entry.key_value if goods_count_entry else 0
-    refresh_limit = 1
-    if store_refresh_entry:
-        if len(store_refresh_entry.key_args) >= 2 and store_refresh_entry.key_args[1] > 0:
-            refresh_limit = store_refresh_entry.key_args[1]
-        elif store_refresh_entry.key_value > 0:
-            refresh_limit = store_refresh_entry.key_value
+    refresh_limit = store_reset_time_entry.key_value if store_reset_time_entry and store_reset_time_entry.key_value > 0 else 1
 
     refresh_costs = list(store_reset_cost_entry.key_args) if store_reset_cost_entry else []
     if not refresh_costs:
@@ -114,7 +113,7 @@ def ensure_state(
         commander_id,
     )
     if row is None:
-        next_time = _next_daily_reset(now)
+        next_time = _next_guild_reset(now)
         store.execute(
             "INSERT INTO guild_shop_states (commander_id, refresh_count, next_refresh_time) VALUES ($1, $2, $3)",
             commander_id, 0, next_time,
@@ -136,14 +135,26 @@ def refresh_if_needed(
     state, goods, err = ensure_state(commander_id, now, config)
     if err:
         return None, None, err
-    # The daily draw never exceeds config.goods_count slots; a longer list can
-    # only be corruption (or a merged interleaved write), so heal it on fetch.
+    # The draw never exceeds config.goods_count slots; a different slot count
+    # can only be corruption or outdated schema, so heal it on fetch.
     expected = config.goods_count if config else 0
-    if (now.timestamp() >= state["next_refresh_time"] or len(goods) == 0
-            or (expected > 0 and len(goods) > expected)):
+    needs_refresh = (
+        now.timestamp() >= state["next_refresh_time"]
+        or len(goods) == 0
+        or (expected > 0 and len(goods) != expected)
+    )
+    if not needs_refresh and config and config.store_entries:
+        guaranteed_ids = {e.id for e in config.store_entries if e.ensure == 1}
+        if guaranteed_ids:
+            current_ids = {g["goods_id"] for g in goods}
+            if not guaranteed_ids.issubset(current_ids):
+                needs_refresh = True
+
+    if needs_refresh:
+        next_time = _next_guild_reset(now)
         goods = _refresh_goods_internal(
             commander_id, now, config,
-            RefreshOptions(refresh_count=0, next_refresh_time=_next_daily_reset(now)),
+            RefreshOptions(refresh_count=0, next_refresh_time=next_time),
         )[0]
         row = _get_state_row(commander_id)
         if row:
@@ -217,25 +228,29 @@ def _build_goods(commander_id: int, config: Config, seed: int) -> list[dict]:
 def _select_goods(entries: list[StoreEntry], count: int, seed: int) -> list[StoreEntry]:
     if count <= 0 or not entries:
         return []
-    if len(entries) <= count:
-        return entries
-    pool = list(entries)
+
+    guaranteed = sorted([e for e in entries if e.ensure == 1], key=lambda e: e.id)
+    if len(guaranteed) >= count:
+        return guaranteed[:count]
+
+    pool = [e for e in entries if e.ensure == 0]
+    if not pool:
+        pool = list(entries)
+
+    remaining = count - len(guaranteed)
     rng = LockedRand(seed)
-    selected = []
-    while len(selected) < count and pool:
-        total = 0
+    total_weight = sum(e.weight if e.weight > 0 else 1 for e in pool)
+
+    selected = list(guaranteed)
+    for _ in range(remaining):
+        roll = rng.uint32_n(total_weight)
         for e in pool:
             w = e.weight if e.weight > 0 else 1
-            total += w
-        roll = rng.uint32_n(total)
-        idx = 0
-        for i, e in enumerate(pool):
-            w = e.weight if e.weight > 0 else 1
             if roll < w:
-                idx = i
+                selected.append(e)
                 break
             roll -= w
-        selected.append(pool.pop(idx))
+
     return selected
 
 
@@ -250,24 +265,22 @@ def _get_guild_set_entry(key: str) -> Optional[SetEntry]:
     )
 
 
-def _next_daily_reset(now: datetime) -> int:
+def _next_guild_reset(now: datetime) -> int:
     try:
-        w = _daily_window(now)
+        w = _guild_store_window(now)
         return int(w.end.timestamp())
     except Exception:
         utc = now.astimezone(timezone.utc)
-        next_day = datetime(utc.year, utc.month, utc.day, 0, 0, 0, 0, tzinfo=timezone.utc) + timedelta(days=1)
-        return int(next_day.timestamp())
+        return int((utc + timedelta(days=3)).timestamp())
 
 
 def _refresh_seed(commander_id: int, now: datetime, refresh_count: int) -> int:
     try:
-        w = _daily_window(now)
+        w = _guild_store_window(now)
         return deterministic_seed(commander_id, w.key, refresh_count)
     except Exception:
         utc = now.astimezone(timezone.utc)
-        day_key = int(utc.replace(hour=0, minute=0, second=0, microsecond=0).timestamp())
-        return deterministic_seed(commander_id, day_key, refresh_count)
+        return deterministic_seed(commander_id, int(utc.timestamp()), refresh_count)
 
 
 _refresh_goods_internal = refresh_goods

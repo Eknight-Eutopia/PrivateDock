@@ -146,7 +146,7 @@ def is_plate_item(item_id: int) -> bool:
 def roll_gear_plates(
     fleet_size: str, fleet_role: str, chapter_id: int, is_boss: bool = False
 ) -> List[dict]:
-    """Authentic tiered gear plates roller matching official server data.
+    """Authentic tiered gear plates roller matching original data.
     - Normal mobs: 3 independent rolls for T1, T2, T3 (capped by chapter tier).
     - Boss: 2..4 T3 plates on Ch 6+ (avg 2.71), T2 on Ch 3-5, T1 on Ch 1-2.
     - Elite: 1..2 plates (avg 1.40).

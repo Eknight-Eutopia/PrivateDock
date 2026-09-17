@@ -135,31 +135,105 @@ def find_technology_project(pool: dict, tech_id: int) -> Tuple[Optional[dict], b
     return None, False
 
 
-def build_technology_refresh_pools(seed: int) -> list:
-    """Build the offered research set.
+RETIRED_SEASONS = {1, 2, 3, 4, 5}
 
-    Wiki model: exactly five randomly-chosen available projects, refreshed on
-    finish / queue / daily reset. Gated techs (condition != 0) are excluded
-    because the EN client model/vo/technology.lua finishCondition() references an
-    undefined local when condition != 0 and crashes on open.
+
+def get_technology_tendency_target(state: dict) -> int:
+    for pool in state.get("refresh_pools", []):
+        if pool.get("id") == 2:
+            try:
+                return int(pool.get("target", 0) or 0)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
+def build_technology_refresh_pools(seed: int, target: int = 0) -> list:
+    """Build the offered research set according to Research Focus (tendency) rules.
+
+    Wiki:
+    - Exactly five available projects per refresh.
+    - Seasons 1 to 5 are retired: unless specified as a focus (target in 1..5),
+      projects from seasons 1 to 5 will never appear.
+    - If a focus season is selected (target > 0):
+      At least 3 out of 5 projects will belong to the selected series.
+      The response is split into:
+        * Pool 2 (focus pool, target = selected): 3 projects of that season
+        * Pool 1 (general pool, target = 0): 2 projects from active seasons (> 5)
+          or remaining projects from the focus season if focus is retired.
+    - If no focus is selected (target == 0):
+      All 5 projects are chosen randomly from active seasons (> 5).
+        * Pool 2: target = 0, empty technologies list
+        * Pool 1: target = 0, 5 technologies from active seasons
+    - Gated techs (condition != 0) are excluded because the EN client
+      model/vo/technology.lua finishCondition() references an undefined local
+      when condition != 0 and crashes on open.
     """
     entries = list_config_entries(TECHNOLOGY_DATA_TEMPLATE_CATEGORY)
     if not entries:
-        return [{"id": 2, "target": 0, "technologies": [{"tech_id": 1, "finish_time": 0}]}]
-    candidates = []
+        return [
+            {"id": 2, "target": target, "technologies": []},
+            {"id": 1, "target": 0, "technologies": [{"tech_id": 1, "finish_time": 0}]}
+        ]
+
+    candidates_by_ver = {}
+    candidates_active = []
     for entry in entries:
         if entry.get("id", 0) == 0 or entry.get("type", 0) == 0:
             continue
         if entry.get("condition", 0) not in (0, None, ""):
             continue
-        candidates.append(entry["id"])
-    if len(candidates) <= 5:
-        chosen = sorted(candidates)
+        tid = entry["id"]
+        ver = entry.get("blueprint_version", 0)
+        candidates_by_ver.setdefault(ver, []).append(tid)
+        if ver not in RETIRED_SEASONS:
+            candidates_active.append(tid)
+
+    rng = random.Random(seed)
+
+    if target > 0 and target in candidates_by_ver:
+        focus_pool = candidates_by_ver[target]
+        focus_sample_count = min(3, len(focus_pool))
+        focus_chosen = rng.sample(focus_pool, focus_sample_count)
+        chosen_set = set(focus_chosen)
+
+        if target in RETIRED_SEASONS:
+            general_pool = [t for t in candidates_active if t not in chosen_set]
+            general_pool += [t for t in focus_pool if t not in chosen_set]
+        else:
+            general_pool = [t for t in candidates_active if t not in chosen_set]
+
+        general_sample_count = min(5 - len(focus_chosen), len(general_pool))
+        general_chosen = rng.sample(general_pool, general_sample_count)
+
+        return [
+            {
+                "id": 2,
+                "target": target,
+                "technologies": [{"tech_id": tid, "finish_time": 0} for tid in sorted(focus_chosen)]
+            },
+            {
+                "id": 1,
+                "target": 0,
+                "technologies": [{"tech_id": tid, "finish_time": 0} for tid in sorted(general_chosen)]
+            }
+        ]
     else:
-        rng = random.Random(seed)
-        chosen = sorted(rng.sample(candidates, 5))
-    technologies = [{"tech_id": tid, "finish_time": 0} for tid in chosen]
-    return [{"id": 2, "target": 0, "technologies": technologies}]
+        source = candidates_active if candidates_active else [e["id"] for e in entries if e.get("id", 0) > 0]
+        sample_count = min(5, len(source))
+        chosen = rng.sample(source, sample_count)
+        return [
+            {
+                "id": 2,
+                "target": 0,
+                "technologies": []
+            },
+            {
+                "id": 1,
+                "target": 0,
+                "technologies": [{"tech_id": tid, "finish_time": 0} for tid in sorted(chosen)]
+            }
+        ]
 
 
 def get_technology_template(tech_id: int) -> dict:
@@ -276,7 +350,7 @@ def _catchup_template(version: int) -> Optional[dict]:
 def catchup_blueprint_item_id(target: int) -> int:
     """The catch-up bonus always ships the target ship's own PR/DR blueprint
     item (ship_data_blueprint.strengthen_item, e.g. Drake 29904 -> 42022 --
-    verified against the official SC_63004 captures)."""
+    verified against the SC_63004)."""
     bp = get_config_entry(SHIP_DATA_BLUEPRINT_CATEGORY, str(int(target)))
     if bp is None:
         return 0
@@ -288,12 +362,12 @@ def catchup_blueprint_item_id(target: int) -> int:
 
 def grant_catchup_blueprints(state: dict, count: int = 1) -> list:
     """Catch-up bonus: every completed research project (main flow and research
-    queue, verified in the official captures) grants 1 blueprint of the
-    selected catch-up ship. Limits per technology_catchup_template: the shared
-    counter of a series (`number`) is capped by `obtain_max` (300, split among
-    ALL non-UR ships of the series -- the client's addTargetNum bumps every
-    non-UR target with the same amount), while a UR/DR ship is capped by
-    `obtain_max_per_ur` (150) per ship (`dr_numbers`).
+    queue) grants 1 blueprint of the selected catch-up ship. Limits per
+    technology_catchup_template: the shared counter of a series (`number`) is
+    capped by `obtain_max` (300, split among ALL non-UR ships of the series --
+    the client's addTargetNum bumps every non-UR target with the same amount),
+    while a UR/DR ship is capped by `obtain_max_per_ur` (150) per ship
+    (`dr_numbers`).
 
     Updates state["catchup_counters"] in place; the caller persists it via
     save_catchup_counters. Returns granted DROPINFO dicts ([] when no target

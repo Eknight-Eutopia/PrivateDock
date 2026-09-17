@@ -178,6 +178,14 @@ def add_item(commander_id: int, type_id: int, count: int):
             next_monday = (now + timedelta(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
             target_time = next_monday + timedelta(weeks=offset_weeks)
             expire_time = int(target_time.timestamp())
+        elif isinstance(drop_arg, list) and len(drop_arg) >= 2 and isinstance(drop_arg[0], list):
+            try:
+                y, m, d = drop_arg[0][:3]
+                h, mi, s = drop_arg[1][:3] if len(drop_arg[1]) >= 3 else (23, 59, 59)
+                target_dt = now.replace(year=y, month=m, day=d, hour=h, minute=mi, second=s, microsecond=0)
+                expire_time = int(target_dt.timestamp())
+            except Exception:
+                expire_time = FOREVER_TIME
         add_chapter_auto_tickets(commander_id, 1, count, expire_time)
         return
     if cfg is not None and cfg.get("open_directly", 0) == 1:
@@ -187,7 +195,7 @@ def add_item(commander_id: int, type_id: int, count: int):
     # into their random contents the moment they are received. They have no manual
     # "Use" button on the client, so storing them raw leaves an unusable wrapper in
     # the bag (e.g. T4 Mystery Gear Part id=54018 -> concrete T4 gear part). This
-    # matches the official behaviour where the contents are granted on pickup.
+    # matches the original behaviour where the contents are granted on pickup.
     if cfg is not None and cfg.get("type") in (98, 99):
         has_pool = bool(
             _parse_icon_list(cfg.get("display_icon"))
@@ -351,6 +359,11 @@ def consume_item(commander_id: int, type_id: int, count: int):
             if obj.count <= 0:
                 session.delete(obj)
             session.commit()
+            try:
+                from src.orm.active_commander import _bump_count_map
+                _bump_count_map(commander_id, "commander_items_map", type_id, -count, "item_id")
+            except Exception:
+                pass
 
 
 def _load_virtual_item_config(item_id: int) -> Optional[dict]:
@@ -427,13 +440,13 @@ _MYSTERY_POOL_OVERRIDES = None
 #     texts declare CUMULATIVE tier ranges ("random T1-T2 skill book",
 #     "T1~T2 Tech Pack", "T2-T3 gear part").
 #   * type 98 (54004-54007, 54031-54035/54039, 54049-54051, 52004): OPAQUE —
-#     display_icon {} in every region; the official server resolves them
-#     internally at grant time. Their displays declare SAME-TIER drops
+#     display_icon {} in every region; originally resolves them internally
+#     at grant time. Their displays declare SAME-TIER drops
 #     ("random T2 skill book" / "random T3 Tech Pack").
 # The derivation below reproduces the official pools from the item configs,
 # reading the tier RANGE from the box's own display text when present
 # ("T1-T2" / "T1~T2", all regions ship it) so both series are handled.
-# Verified against the official data:
+# Verified against the original data:
 #   * skill books: CN display_icon pools are SAME-TIER-ONLY for the type-98
 #     series (54005 -> ONLY T2 books) and the type-99 series is cumulative
 #     (54002 -> T1+T2) — the derivation reproduces both exactly.
@@ -455,7 +468,7 @@ _MYSTERY_POOL_OVERRIDES = None
 # through those. The generic opaque ones (56000/56500-56502, type 98) are
 # derived from their display text's rarity ceiling ("SR or lower" / "Elite or
 # lower" / "R or lower" / "Common") over ship_data_statistics — a faithful
-# reading of the client text (the official pool is not shipped in any region).
+# reading of the client text (the original pool is not shipped in any region).
 _MEMBER_PATTERNS = {
     # family -> (member item type, member-name regex builder(tier, hull))
     "skill_book":  (10, lambda t, _hull: re.compile(rf"^T{t} .* Skill Book$")),

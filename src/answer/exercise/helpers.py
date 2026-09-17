@@ -410,7 +410,7 @@ def current_exercise_season_score_and_rank(commander_id: int):
 def _rank_reward_merit(tier_index: int) -> int:
     """Merit granted for reaching a NEW highest rank tier (once per season).
 
-    Amounts are the official 'Merit (Promotion)' column of the Military
+    Amounts are the original 'Merit (Promotion)' column of the Military
     Exercise table, kept in configurations/exercise_rank_rewards.json."""
     import json
     import os
@@ -460,7 +460,7 @@ def _rank_reward_resource_id() -> int:
 def _send_rank_reward_mail(commander_id: int, tier_index: int, merit: int) -> Optional[int]:
     """Deliver the promotion reward via in-game mail (mails + mail_attachments).
     Attachment type 1 = resource; the currency comes from the config
-    (official table: Merit)."""
+    (original table: Merit)."""
     try:
         from src.orm.mail import create_mail_sync, create_mail_attachment_sync
         tier_name = EXERCISE_TIERS[tier_index - 1][0] if 1 <= tier_index <= len(EXERCISE_TIERS) else "?"

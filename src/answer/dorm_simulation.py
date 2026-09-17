@@ -43,14 +43,12 @@ _TYPE_FURNITURE = 2  # default group when type out of range
 
 _DORM_2_FLOOR_COMFORTABLE_ADDITION = 20  # client Dorm.DORM_2_FLOOR_COMFORTABLE_ADDITION
 
-# Wiki: with no supplies (food) the shipgirls still gain exp at a reduced rate
+# With no supplies (food) the shipgirls still gain exp at a reduced rate
 # (EXP per hour @ 0 supplies = EXP per hour * 0.25).
 DORM_NO_SUPPLY_EXP_FACTOR = 0.25
 
 # gameset dorm_*_pop_rant base: chance = rant / 10000 (project-wide chance
-# convention, same base as ambush_ratio_extra / CHAPTER_CHANCE_BASE). Verified
-# against official captures: 2 intimacy pops / 36 ship-pop-windows == 5.6% ~
-# rant 500 = 5%; a 50% reading would have produced ~18 hits.
+# convention, same base as ambush_ratio_extra / CHAPTER_CHANCE_BASE).
 DORM_POP_RANT_BASE = 10000
 
 
@@ -68,9 +66,9 @@ def roll_pop_values(pop_count: int, chance_intimacy: float, chance_money: float,
     Each window is an independent trial at the gameset chance, so an overnight
     absence rolls more windows than a single 30-min poll; the reward is still
     ONE pending roll per ship (delivered values are SET, never accumulated).
-    Intimacy and dorm money are independent (official SC_19010 carries
-    (intimacy=2, dorm_icon=0): hearts without coins). Either side can be 0 --
-    a (0, 0) result means no pending pop for this settlement.
+    Intimacy and dorm money are independent (SC_19010 carries (intimacy=2,
+    dorm_icon=0): hearts without coins). Either side can be 0 -- a (0, 0)
+    result means no pending pop for this settlement.
     """
     if pop_count <= 0:
         return 0, 0
@@ -424,9 +422,7 @@ async def tick_dorm_state(commander_id: int, now: int) -> Optional[dict]:
 
     # Per pop window a ship gets ONE CHANCE (not a guaranteed roll): gameset
     # dorm_intimacy_pop_rant / dorm_dorm_pop_rant (both 500) out of 10000 = 5%
-    # each, and intimacy / dorm money roll INDEPENDENTLY. Verified against
-    # official captures: 12 CS_19009 polls with 3 dorm ships -> 2 intimacy pops
-    # (one reported as (2, 0): hearts without coins), 0 money pops.
+    # each, and intimacy / dorm money roll INDEPENDENTLY.
     chance_intimacy, chance_money = await _fetch_pop_chances()
 
     pop_list = []
