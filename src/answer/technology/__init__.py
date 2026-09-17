@@ -14,6 +14,7 @@ from .helpers import (
     is_valid_catchup_target,
     max_technology_blueprint_version,
     current_technology_day,
+    get_technology_tendency_target,
 )
 from .handlers import (
     handle_technology_refresh_list,

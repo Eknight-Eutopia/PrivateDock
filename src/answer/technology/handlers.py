@@ -33,6 +33,7 @@ from .helpers import (
     list_config_entries,
     max_technology_blueprint_version,
     current_technology_day,
+    get_technology_tendency_target,
 )
 
 
@@ -72,6 +73,13 @@ def handle_technology_refresh_list(_buffer: bytes, client: Client) -> tuple[int,
 
     try:
         normalized = normalize_technology_refresh_flag(state)
+        now_unix = int(time.time())
+        if len(state.get("refresh_pools", [])) < 2 and not has_active_technology(state, now_unix):
+            target = get_technology_tendency_target(state)
+            seed = now_unix + cid
+            state["refresh_pools"] = build_technology_refresh_pools(seed, target=target)
+            normalized = True
+
         if normalized:
             store = get_default_store()
             cid2 = state.get("commander_id", cid)
@@ -284,8 +292,9 @@ def handle_finish_technology_research(buffer: bytes, client: Client) -> tuple[in
         return 0, 63004, None
 
     project["finish_time"] = 0
+    target = get_technology_tendency_target(state)
     seed = now_unix + client.commander.commander_id
-    new_pools = build_technology_refresh_pools(seed)
+    new_pools = build_technology_refresh_pools(seed, target=target)
     carry_pool_targets(state, new_pools)
     state["refresh_pools"] = new_pools
     store = get_default_store()
@@ -403,8 +412,9 @@ def handle_refresh_technology_projects(buffer: bytes, client: Client) -> tuple[i
         asyncio.create_task(client.send_message(63008, response))
         return 0, 63008, None
 
+    target = get_technology_tendency_target(state)
     seed = now_unix + client.commander.commander_id
-    pools = build_technology_refresh_pools(seed)
+    pools = build_technology_refresh_pools(seed, target=target)
     carry_pool_targets(state, pools)
     state["refresh_pools"] = pools
     state["refresh_flag"] = 1
@@ -452,10 +462,10 @@ def handle_change_refresh_technology_tendency(buffer: bytes, client: Client) -> 
 
     pool, ok = find_technology_pool(state, refresh_id)
     if not ok:
-        asyncio.create_task(client.send_message(63010, response))
-        return 0, 63010, None
-
-    pool["target"] = target
+        pool = {"id": refresh_id, "target": target, "technologies": []}
+        state.setdefault("refresh_pools", []).append(pool)
+    else:
+        pool["target"] = target
     store = get_default_store()
     pools_raw = json.dumps(state["refresh_pools"])
     store.execute(
@@ -573,8 +583,9 @@ def handle_join_technology_queue(buffer: bytes, client: Client) -> tuple[int, in
     queue.sort(key=lambda x: x["finish_time"])
     project["finish_time"] = 0
 
+    target = get_technology_tendency_target(state)
     seed = now_unix + client.commander.commander_id
-    new_pools = build_technology_refresh_pools(seed)
+    new_pools = build_technology_refresh_pools(seed, target=target)
     carry_pool_targets(state, new_pools)
     state["refresh_pools"] = new_pools
 
