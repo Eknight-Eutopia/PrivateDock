@@ -25,7 +25,9 @@ def handle_fleet_commit(
             response.result = 1
     if response.result == 0:
         try:
-            update_fleet_ships(fleet.id, ship_ids)
+            fleet = update_fleet_ships(fleet.id, ship_ids)
+            if fleet is not None:
+                fleet.ship_list = ship_ids
         except Exception as e:
             response.result = 1
 

@@ -27,6 +27,7 @@ from .helpers import (
     ChapterTemplate,
     load_chapter_template,
     find_chapter_cell_at,
+    find_move_path,
 )
 from .handlers import (
     handle_chapter_base_sync,
@@ -35,6 +36,7 @@ from .handlers import (
     handle_chapter_battle_result,
     handle_get_chapter_drop_ship_list,
     handle_remove_elite_target_ship,
+    handle_update_custom_fleet,
 )
 from .commander_strike import (
     evaluate_commander_preemptive_strikes,
@@ -71,12 +73,14 @@ __all__ = [
     "ChapterTemplate",
     "load_chapter_template",
     "find_chapter_cell_at",
+    "find_move_path",
     "handle_chapter_base_sync",
     "handle_chapter_tracking",
     "handle_chapter_action",
     "handle_chapter_battle_result",
     "handle_get_chapter_drop_ship_list",
     "handle_remove_elite_target_ship",
+    "handle_update_custom_fleet",
     "evaluate_commander_preemptive_strikes",
     "is_strike_target_cell",
     "check_skill_condition",

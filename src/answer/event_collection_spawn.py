@@ -362,7 +362,8 @@ def maybe_spawn_urgent_after_battle_sync(client, stage_id: int) -> bool:
     battle; only campaign (chapter) battles roll. The new offer is pushed via
     SC_13011 so it shows up in the Urgent tab immediately, with its countdown
     taken from the template's own `time` shelf life."""
-    if random.randint(1, 100) > URGENT_SPAWN_CHANCE_PERCENT:
+    from src.config.game_variables import get_urgent_commission_spawn_chance_percent
+    if random.randint(1, 100) > get_urgent_commission_spawn_chance_percent():
         return False
 
     cid = client.commander.commander_id

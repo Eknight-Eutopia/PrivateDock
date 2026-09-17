@@ -23,8 +23,8 @@ from .helpers import (
     owns_all_ships,
     tier_index_for_score,
     empty_display,
-    EXERCISE_REFRESHES_PER_DAY,
 )
+from src.config.game_variables import get_exercise_refreshes_per_day
 
 
 def handle_exercise_enemies(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
@@ -74,7 +74,7 @@ def handle_exercise_replace_rivals(buffer: bytes, client: Client) -> tuple[int, 
     from src.orm.exercise_state import upsert_exercise_state_sync
     upsert_exercise_state_sync(state)
 
-    refresh_count = max(0, EXERCISE_REFRESHES_PER_DAY - state.refreshes_today)
+    refresh_count = max(0, get_exercise_refreshes_per_day() - state.refreshes_today)
     targets = build_exercise_rival_target_list(
         commander_id, state, refresh_count=refresh_count
     )

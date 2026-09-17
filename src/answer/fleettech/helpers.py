@@ -133,28 +133,28 @@ def fleet_tech_build_max_additions(state: dict, groups: dict, templates: dict) -
     return max_dict
 
 
-def fleet_tech_build_tech_set_list(state: dict, max_dict: dict):
+def fleet_tech_build_tech_set_list(state: dict, max_dict: dict = None):
     result = []
     for override in state.get("attr_overrides", []):
-        key = (override.get("ship_type", 0), override.get("attr_type", 0))
-        max_value = max_dict.get(key, 0)
-        if max_value == 0:
-            continue
+        ship_type = override.get("ship_type", 0)
+        attr_type = override.get("attr_type", 0)
         set_value = override.get("set_value", 0)
-        if set_value > max_value:
+        if ship_type == 0 or attr_type == 0:
             continue
-        if set_value == max_value:
-            continue
+        if max_dict:
+            key = (ship_type, attr_type)
+            if key in max_dict and set_value == max_dict[key]:
+                continue
         ts = protobuf.TECHSET()
-        ts.ship_type = override.get("ship_type", 0)
-        ts.attr_type = override.get("attr_type", 0)
+        ts.ship_type = ship_type
+        ts.attr_type = attr_type
         ts.set_value = set_value
         result.append(ts)
     result.sort(key=lambda x: (x.ship_type, x.attr_type))
     return result
 
 
-def fleet_tech_normalize_overrides(payload: list, max_dict: dict):
+def fleet_tech_normalize_overrides(payload: list, max_dict: dict = None):
     if not payload:
         return [], True
     index = {}
@@ -162,32 +162,22 @@ def fleet_tech_normalize_overrides(payload: list, max_dict: dict):
     for ts in payload:
         if ts is None:
             return None, False
-        ship_type = ts.ship_type
-        attr_type = ts.attr_type
-        set_value = ts.set_value
+        ship_type = getattr(ts, "ship_type", 0) if not isinstance(ts, dict) else ts.get("ship_type", 0)
+        attr_type = getattr(ts, "attr_type", 0) if not isinstance(ts, dict) else ts.get("attr_type", 0)
+        set_value = getattr(ts, "set_value", 0) if not isinstance(ts, dict) else ts.get("set_value", 0)
         if ship_type == 0 or attr_type == 0:
             return None, False
         key = (ship_type, attr_type)
-        max_value = max_dict.get(key, 0)
-        if max_value == 0:
+        if max_dict and key in max_dict and set_value > max_dict[key]:
             return None, False
-        if set_value > max_value:
-            return None, False
-        normalized = {"ship_type": ship_type, "attr_type": attr_type, "set_value": set_value}
+        normalized = {"ship_type": ship_type, "attr_type": attr_type, "set_value": int(set_value)}
         if key in index:
             overrides[index[key]] = normalized
             continue
         index[key] = len(overrides)
         overrides.append(normalized)
-    effective = []
-    for override in overrides:
-        key = (override["ship_type"], override["attr_type"])
-        max_value = max_dict.get(key, 0)
-        if override["set_value"] == max_value:
-            continue
-        effective.append(override)
-    effective.sort(key=lambda x: (x["ship_type"], x["attr_type"]))
-    return effective, True
+    overrides.sort(key=lambda x: (x["ship_type"], x["attr_type"]))
+    return overrides, True
 
 
 def fleet_tech_claim_drops(template: dict):

@@ -9,11 +9,13 @@ def push_fleet_sync(client, fleet) -> None:
         raise ValueError("fleet is required")
 
     cid = getattr(getattr(client, "commander", None), "commander_id", None)
-    if isinstance(fleet, int) and cid is not None:
+    if cid is not None:
         from src.orm.fleet import get_fleet_by_game_id
-        f = get_fleet_by_game_id(cid, fleet)
-        if f is not None:
-            fleet = f
+        target_gid = fleet if isinstance(fleet, int) else getattr(fleet, "game_id", None)
+        if target_gid is not None:
+            f = get_fleet_by_game_id(cid, int(target_gid))
+            if f is not None:
+                fleet = f
 
     game_id = getattr(fleet, "game_id", None) or getattr(fleet, "id", 1)
     name = getattr(fleet, "name", "") or ""

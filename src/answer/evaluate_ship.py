@@ -68,7 +68,21 @@ def _comment_contains_banned_word(comment: str) -> bool:
     return False
 
 
-def _count_ship_hearts() -> int:
+def _count_ship_hearts(ship_group_id: int = 0) -> int:
+    if ship_group_id == 0:
+        return 0
+    try:
+        from src.db.store import get_default_store
+        store = get_default_store()
+        if store is not None:
+            row = store.fetchrow(
+                "SELECT COUNT(*) AS cnt FROM likes WHERE group_id = $1",
+                ship_group_id,
+            )
+            if row:
+                return int(row["cnt"])
+    except Exception:
+        pass
     return 0
 
 
@@ -84,14 +98,26 @@ def _send_eval_result(client, result: int, ship_discuss=None, need_level: int = 
 def handle_post_ship_evaluation_comment(
     buffer: bytes, client: Client,
 ) -> tuple[int, int, Optional[Exception]]:
-    import json
-    payload = json.loads(buffer.decode("utf-8", errors="replace"))
+    comment = ""
+    ship_group_id = 0
+    try:
+        req = protobuf.CS_17103()
+        req.ParseFromString(buffer)
+        ship_group_id = req.ship_group_id
+        comment = req.context or ""
+    except Exception:
+        try:
+            import json
+            payload = json.loads(buffer.decode("utf-8", errors="replace"))
+            comment = payload.get("context", "")
+            ship_group_id = payload.get("ship_group_id", 0)
+        except Exception:
+            pass
 
     if client.commander is None:
         _send_eval_result(client, 1)
         return 0, 17104, None
 
-    comment = payload.get("context", "")
     if not comment.strip():
         _send_eval_result(client, 1)
         return 0, 17104, None
@@ -104,7 +130,6 @@ def handle_post_ship_evaluation_comment(
         _send_eval_result(client, 2013)
         return 0, 17104, None
 
-    ship_group_id = payload.get("ship_group_id", 0)
     if ship_group_id == 0:
         _send_eval_result(client, 1)
         return 0, 17104, None
@@ -114,7 +139,7 @@ def handle_post_ship_evaluation_comment(
         return 0, 17104, None
 
     state = _get_ship_discuss_state(ship_group_id)
-    heart_count = _count_ship_hearts()
+    heart_count = _count_ship_hearts(ship_group_id)
 
     with state.lock:
         if state.daily_discuss_count >= SHIP_EVALUATION_DAILY_COMMENT_MAX:

@@ -228,7 +228,7 @@ from .remaster_config import handle_remaster_request_config
 from .remaster_info import handle_remaster_request_info
 from .remaster_basic_info import handle_remaster_basic_info
 from .remaster_claim import handle_remaster_claim
-from .remaster_chapter_info import handle_remaster_chapter_info
+from .chapter import handle_update_custom_fleet
 from .remaster_tickets import handle_remaster_request_tickets
 from .report_ship_evaluation_proto import handle_report_ship_evaluation_proto
 from .server_status_cache import build_server_status_config, parse_server_status_payload

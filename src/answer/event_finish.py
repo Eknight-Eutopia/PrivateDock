@@ -187,7 +187,8 @@ def _build_event_finish_drops(template: dict):
     if not special_entries:
         return result, False
 
-    crit_chance = DEFAULT_EVENT_FINISH_CRIT_CHANCE_PERCENT
+    from src.config.game_variables import get_commission_crit_chance_percent
+    crit_chance = get_commission_crit_chance_percent()
     is_cri = random.randint(0, 99) < crit_chance
     if not is_cri:
         return result, False
@@ -280,8 +281,8 @@ def _resolve_drop_count(raw):
         # Rollover commissions (Self Training / Tactical Class / Research
         # Mission / ...) express the coin reward as "3000+"/"4500+" -- the
         # guaranteed base; the official server adds a small ship-match bonus on
-        # top (capture: template "4500+" paid out 4566). Parse the base instead
-        # of falling through to the int() failure, which returned 0 and made
+        # top (template "4500+" paid out 4566). Parse the base instead of 
+        # falling through to the int() failure, which returned 0 and made
         # _parse_collection_drop_objects skip the coins entry entirely (the
         # commission paid out the skill books but never any coins).
         if raw.endswith("+"):

@@ -160,20 +160,20 @@ Before the first launch, open `configurations/server.json` and set `servers[0].i
 > Both values ship as `127.0.0.1`, which only works when the client runs on the same machine as the server — for example an emulator with ADB port forwarding.
 > For a phone, a tablet, or an emulator on its own virtual network adapter you must change **both**:
 > - `servers[0].ip` — the address handed to the client, e.g. `192.168.0.100`;
-> - `privatedock.bind_address` — set it to `0.0.0.0`. While it is `127.0.0.1` the server listens on loopback only and never sees connections coming from other devices, no matter what `servers[0].ip` says.
+> - `privatedock.bind_address` — set it to `0.0.0.0`. While it is `127.0.0.1`, the server listens on loopback only and never sees connections coming from other devices, no matter what `servers[0].ip` says.
 
 ### Command-Line Arguments
 
 The server accepts several optional command-line flags:
 
-| Flag | Short | Default | Description |
-| :--- | :---: | :---: | :--- |
-| `--config <PATH>` | | `configurations/server.json` | Path to JSON server configuration file |
-| `--no-api` | | `false` | Disable the embedded FastAPI REST API server (port 2289) |
-| `--reseed` | `-s` | `false` | Force a full re-seed of game data from `data/` into the database |
-| `--adb` | `-a` | `false` | Start background ADB watcher to parse live client Unity/Lua logs |
-| `--flush-logcat` | `-f` | `false` | Flush device logcat buffer before starting ADB watcher |
-| `--restart` | `-r` | `false` | Automatically restart the Azur Lane game client via ADB on startup |
+| Flag              | Short |           Default            | Description                                                        |
+|:------------------|:-----:|:----------------------------:|:-------------------------------------------------------------------|
+| `--config <PATH>` |       | `configurations/server.json` | Path to JSON server configuration file                             |
+| `--no-api`        |       |           `false`            | Disable the embedded FastAPI REST API server (port 2289)           |
+| `--reseed`        | `-s`  |           `false`            | Force a full re-seed of game data from `data/` into the database   |
+| `--adb`           | `-a`  |           `false`            | Start background ADB watcher to parse live client Unity/Lua logs   |
+| `--flush-logcat`  | `-f`  |           `false`            | Flush device logcat buffer before starting ADB watcher             |
+| `--restart`       | `-r`  |           `false`            | Automatically restart the Azur Lane game client via ADB on startup |
 
 ### Usage Examples
 
@@ -231,7 +231,7 @@ Redirect `blhxusgate.yo-star.com` to your server LAN IP address using one of the
 3. Start the AdAway VPN service, then launch the game.
 
 > [!NOTE]
-> The VPN-based mode has not been verified with this client yet. Two things to watch: a rule added as *blocked* is answered with an empty DNS response, so the client simply fails to connect — it has to be a redirect rule; and some games refuse to start while a VPN is active. If either bites, fall back to Method B or C.
+> The VPN-based mode has not been verified with this client yet. Two things to watch: a rule added as *blocked* is answered with an empty DNS response, so the client simply fails to connect — it has to be a redirect rule; and some games refuse to start while a VPN is active. If either issue occurs, fall back to Method B or C.
 
 #### Method B: Local DNS Server (No Root Required)
 If your client device is not rooted:
@@ -255,9 +255,9 @@ PrivateDock replaces the game gateway, **not** the account service. The stock cl
 
 What reaches PrivateDock is only the numeric account id (`arg2`) that the client presents at the gateway — your credentials are never sent to it:
 
-- The id is mapped to a local commander in the `yostarus_maps` table. Only that id is stored, nothing else about the account.
+- The ID is mapped to a local commander in the `yostarus_maps` table. Only that id is stored, nothing else about the account.
 - **First login from a given account** — no commander exists yet, so the client asks for a commander name and a starter ship, and PrivateDock creates the record.
-- **Later logins with the same account** — resume the same commander. Every account keeps its own separate progress on the same server, so switching accounts is a way to start fresh without wiping the database.
+- **Later logins with the same account** resume the existing commander. Every account keeps its own separate progress on the same server, so switching accounts is a way to start fresh without wiping the database.
 
 ---
 
@@ -267,36 +267,58 @@ The main configuration file is located at `configurations/server.json`.
 
 ### Reference Table
 
-| Section | Key | Type | Default | Description |
-| :--- | :--- | :---: | :---: | :--- |
-| **`privatedock`** | `bind_address` | string | `"127.0.0.1"` | Network interface IP to bind to. Ships as loopback-only; set `0.0.0.0` to accept connections from other devices |
-| | `port` | integer | `80` | Gateway TCP listening port (standard game port is 80) |
-| | `name` | string | `"Private Dock"` | Server instance display name |
-| | `require_private_clients` | boolean | `false` | Whether to restrict connections to private client builds |
-| | `maintenance` | boolean | `false` | If `true`, advertises maintenance status to incoming clients |
-| **`servers`** | `id` | integer | `1` | Server entry identifier |
-| | `name` | string | `"Private Dock"` | Server name displayed on the in-game server selection screen |
-| | `ip` | string | `"127.0.0.1"` | Gateway IP address sent to client for game connection |
-| | `port` | integer | `80` | Gateway port sent to client for game connection |
-| | `proxy_ip` | string | `null` | Optional external proxy IP |
-| | `proxy_port` | integer | `null` | Optional external proxy port |
-| **`database`** | `driver` | string | `"sqlite"` | Database engine (`"sqlite"` or `"postgres"`) |
-| | `path` | string | `"db/privatedock.db"` | SQLite database file path relative to repository root |
-| | `dsn` | string | `""` | Full connection URI (e.g. `postgres://user:pass@host:5432/db`) |
-| | `schema_name` | string | `"privatedock"` | Target schema name for PostgreSQL |
-| **`region`** | `default` | string | `"EN"` | Game client region (`"EN"`, `"JP"`, `"CN"`, `"TW"`, `"KR"`) |
-| **`create_player`** | `skip_onboarding` | boolean | `false` | If `true`, skips prologue missions and intro battles |
-| | `name_blacklist` | array | `[]` | List of disallowed commander names |
-| | `name_illegal_pattern` | string | `""` | Regex pattern matching forbidden characters in names |
-| **`api`** | `enabled` | boolean | `false` | Whether to start the embedded FastAPI REST API server. Disabled in the shipped configuration |
-| | `port` | integer | `2289` | HTTP port for REST API |
-| | `environment` | string | `"development"` | API environment mode (`"development"` or `"production"`) |
-| | `cors_origins` | array | `["*"]` | Allowed CORS origins for browser access |
-| **`auth`** | `disable_auth` | boolean | `false` | If `true`, disables authentication checks on API routes |
-| | `session_ttl_seconds` | integer | `86400` | Web admin session lifetime in seconds (1 day) |
-| | `cookie_name` | string | `"privatedock_admin_session"` | Session cookie identifier |
-| **`logs`** | `max_age_days` | integer | `14` | Delete `.log` files older than this many days at startup (`<= 0` disables the rule) |
-| | `max_total_mb` | integer | `30` | Then delete the oldest logs until the `logs/` directory is below this size in MB (`<= 0` disables the rule) |
+| Section             | Key                       |  Type   |            Default            | Description                                                                                                        |
+|:--------------------|:--------------------------|:-------:|:-----------------------------:|:-------------------------------------------------------------------------------------------------------------------|
+| **`privatedock`**   | `bind_address`            | string  |         `"127.0.0.1"`         | Network interface IP to bind to. Ships as loopback-only; set to `0.0.0.0` to accept connections from other devices |
+|                     | `port`                    | integer |             `80`              | Gateway TCP listening port (standard game port is 80)                                                              |
+|                     | `name`                    | string  |       `"Private Dock"`        | Server instance display name                                                                                       |
+|                     | `require_private_clients` | boolean |            `false`            | Whether to restrict connections to private client builds                                                           |
+|                     | `maintenance`             | boolean |            `false`            | If `true`, advertises maintenance status to incoming clients                                                       |
+| **`servers`**       | `id`                      | integer |              `1`              | Server entry identifier                                                                                            |
+|                     | `name`                    | string  |       `"Private Dock"`        | Server name displayed on the in-game server selection screen                                                       |
+|                     | `ip`                      | string  |         `"127.0.0.1"`         | Gateway IP address sent to client for game connection                                                              |
+|                     | `port`                    | integer |             `80`              | Gateway port sent to client for game connection                                                                    |
+|                     | `proxy_ip`                | string  |            `null`             | Optional external proxy IP                                                                                         |
+|                     | `proxy_port`              | integer |            `null`             | Optional external proxy port                                                                                       |
+| **`database`**      | `driver`                  | string  |          `"sqlite"`           | Database engine (`"sqlite"` or `"postgres"`)                                                                       |
+|                     | `path`                    | string  |     `"db/privatedock.db"`     | SQLite database file path relative to repository root                                                              |
+|                     | `dsn`                     | string  |             `""`              | Full connection URI (e.g. `postgres://user:pass@host:5432/db`)                                                     |
+|                     | `schema_name`             | string  |        `"privatedock"`        | Target schema name for PostgreSQL                                                                                  |
+| **`region`**        | `default`                 | string  |            `"EN"`             | Game client region (`"EN"`, `"JP"`, `"CN"`, `"TW"`, `"KR"`)                                                        |
+| **`create_player`** | `skip_onboarding`         | boolean |            `false`            | If `true`, skips prologue missions and intro battles                                                               |
+|                     | `name_blacklist`          |  array  |             `[]`              | List of disallowed commander names                                                                                 |
+|                     | `name_illegal_pattern`    | string  |             `""`              | Regex pattern matching forbidden characters in names                                                               |
+| **`api`**           | `enabled`                 | boolean |            `false`            | Whether to start the embedded FastAPI REST API server. Disabled in the shipped configuration                       |
+|                     | `port`                    | integer |            `2289`             | HTTP port for REST API                                                                                             |
+|                     | `environment`             | string  |        `"development"`        | API environment mode (`"development"` or `"production"`)                                                           |
+|                     | `cors_origins`            |  array  |            `["*"]`            | Allowed CORS origins for browser access                                                                            |
+| **`auth`**          | `disable_auth`            | boolean |            `false`            | If `true`, disables authentication checks on API routes                                                            |
+|                     | `session_ttl_seconds`     | integer |            `86400`            | Web admin session lifetime in seconds (1 day)                                                                      |
+|                     | `cookie_name`             | string  | `"privatedock_admin_session"` | Session cookie identifier                                                                                          |
+| **`logs`**          | `max_age_days`            | integer |             `14`              | Delete `.log` files older than this many days at startup (`<= 0` disables the rule)                                |
+|                     | `max_total_mb`            | integer |             `30`              | Then delete the oldest logs until the `logs/` directory is below this size in MB (`<= 0` disables the rule)        |
+
+### Gameplay Variables (`configurations/game_variables.json`)
+
+Gameplay tuning and server-side limit overrides are configured in `configurations/game_variables.json`. Changes to this file are automatically detected and hot-reloaded by the server at runtime without requiring a process restart.
+
+| Key | Type | Default | Description |
+|:-----------------------------------------|:-------:|:-------:|:-------------------------------------------------------------------------------------------------------------------|
+| **`build_dock_slots`**                   | integer | `4`     | Number of simultaneous ship construction slots.                                                                    |
+| **`max_gear_skin_boxes`**                | integer | `1`     | Maximum gear skin box offers appearing in one street shop draw.                                                    |
+| **`tutorial_first_build_ship`**          | integer | `202121`| Ship template ID granted for every commander's first (tutorial) build (`202121` = Belfast; `0` = random).          |
+| **`exercise_bot_level_min_percent`**     | number  | `-10`   | Min level variance for Exercise bot ships as % offset from player top-6 average (`-10` = -10%).                    |
+| **`exercise_bot_level_max_percent`**     | number  | `10`    | Max level variance for Exercise bot ships as % offset from player top-6 average (`10` = +10%).                     |
+| **`exercise_recover_amount`**            | integer | `5`     | Number of exercise attempts recovered every 00:00 / 12:00 / 18:00 local time.                                      |
+| **`exercise_refreshes_per_day`**         | integer | `5`     | Free rival list refreshes allowed per day ("New Opponents").                                                       |
+| **`exercise_rival_fallback_level`**      | integer | `30`    | Fallback level for NPC rival ships when the player owns no ships yet.                                              |
+| **`commission_crit_chance_percent`**     | integer | `100`   | Chance (0–100%) of Great Success and obtaining items from the "May Find" extra drops block.                       |
+| **`urgent_commission_spawn_chance_percent`** | integer | `3` | Chance (0–100%) of spawning an urgent commission after winning a campaign battle.                                  |
+| **`sub_strike_min_damage_cap_percent`**   | float   | `3.0`   | Minimum HP reduction percentage from a campaign submarine ammo strike.                                             |
+| **`sub_strike_max_damage_cap_percent`**   | float   | `20.0`  | Maximum base HP reduction percentage from a campaign submarine ammo strike.                                        |
+| **`build_time_multiplier`**              | float   | `1.0`   | Multiplier for ship construction time (`1.0` = standard duration, `0.0` = instant build).                         |
+| **`default_build_time_seconds`**         | integer | `600`   | Fallback build duration in seconds if ship is not listed in `build_times.json`.                                     |
+| **`shopstreet_goods_count`**             | integer | `10`    | Total number of item offers displayed in Shiranui's shopping street.                                               |
 
 ---
 
@@ -311,7 +333,7 @@ PrivateDock includes an embedded REST API built with FastAPI. It is **disabled**
   ```
 - **Current Status**:
   - System health, server status, permission policies, and challenge routes are active.
-  - User management endpoints (`/api/v1/admin/users`) and web frontend dashboard are currently work in progress (`not implemented`).
+  - User management endpoints (`/api/v1/admin/users`) and web frontend dashboard are not currently under development (`not implemented`).
 - **Disabling the API**:
   - If you do not need the HTTP API service, run the server with `--no-api` or set `"api": {"enabled": false}` in `server.json`.
 
@@ -343,7 +365,7 @@ PrivateDock includes an embedded REST API built with FastAPI. It is **disabled**
     ```
     Common culprits on Windows:
     - IIS / World Wide Web Publishing Service: Stop it via `net stop w3svc`.
-    - Skype, Apache, or Nginx.
+    - Local web servers (Apache, Nginx, XAMPP, or WampServer).
     - Another local proxy or traffic-capture tool you may have left running.
   - **Linux**:
     ```bash

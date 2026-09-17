@@ -346,7 +346,7 @@ def register_packets():
     register_packet_handler(13501, [handle_remaster_set_active_chapter])
     register_packet_handler(13503, [handle_remaster_basic_info])
     register_packet_handler(13505, [handle_remaster_request_info])
-    register_packet_handler(13107, [handle_remaster_chapter_info])
+    register_packet_handler(13107, [handle_update_custom_fleet])
     register_packet_handler(13507, [handle_remaster_claim])
     register_packet_handler(24609, [handle_remaster_request_active_chapter])
     register_packet_handler(24611, [handle_remaster_request_tickets])

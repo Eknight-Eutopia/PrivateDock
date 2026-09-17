@@ -8,13 +8,26 @@ from src.protobuf import protobuf
 def handle_update_ship_like(
     buffer: bytes, client: Client,
 ) -> tuple[int, int, Optional[Exception]]:
-    import json
-    payload = json.loads(buffer.decode("utf-8", errors="replace"))
+    ship_group_id = 0
+    try:
+        req = protobuf.CS_17107()
+        req.ParseFromString(buffer)
+        ship_group_id = req.ship_group_id
+    except Exception:
+        try:
+            import json
+            payload = json.loads(buffer.decode("utf-8", errors="replace"))
+            ship_group_id = payload.get("ship_group_id", 0)
+        except Exception:
+            pass
 
-    ship_group_id = payload.get("ship_group_id", 0)
+    if client.commander is None or ship_group_id <= 0:
+        asyncio.create_task(client.send_message(17108, protobuf.SC_17108(result=1)))
+        return 0, 17108, None
+
     like_error = None
     try:
-        like_error = client.commander.like(ship_group_id)
+        client.commander.like(ship_group_id)
     except Exception as e:
         like_error = e
 

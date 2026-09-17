@@ -100,8 +100,9 @@ def get_sub_group_commander_bonuses(group, owner_id: int) -> tuple[int, float]:
     Checks commander skills equipped to the submarine group:
     Returns (extra_hunting_lv, max_damage_cap).
     """
+    from src.config.game_variables import get_sub_strike_damage_caps
+    _, max_cap = get_sub_strike_damage_caps()
     extra_hunting_lv = 0
-    max_cap = DEFAULT_MAX_DAMAGE_CAP
 
     commander_list = getattr(group, "commander_list", [])
     for c in commander_list:
@@ -304,11 +305,13 @@ def evaluate_submarine_auto_attacks(
 
         # Check Meowfficer damage cap boost
         _, max_cap = get_sub_group_commander_bonuses(group, owner_id)
+        from src.config.game_variables import get_sub_strike_damage_caps
+        min_cap, _ = get_sub_strike_damage_caps()
 
         # Formula:
         # Node HP Reduction % = 0.15 * sqrt(Sub Fleet Power) + 0.25 * (Avg Sub Level - Enemy Level)
         raw_reduction = 0.15 * math.sqrt(total_power) + 0.25 * (avg_sub_level - enemy_level)
-        clamped_reduction = max(DEFAULT_MIN_DAMAGE_CAP, min(max_cap, raw_reduction))
+        clamped_reduction = max(min_cap, min(max_cap, raw_reduction))
 
         # Stored as basis points in item_data (e.g. 18.5% -> 1850)
         reduction_basis_points = int(round(clamped_reduction * 100))

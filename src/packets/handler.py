@@ -47,7 +47,9 @@ async def dispatch(buffer: bytes, client: Client, n: int):
             # can identify the commission board request packet. Remove after.
             log_event("Handler", "RecvPacket", f"CS_{packet_id} has_handler={handlers is not None}", LOG_LEVEL_WARN)
 
-            headerless_buffer = buffer[offset + HEADER_SIZE:]
+            headerless_buffer = buffer[offset + HEADER_SIZE:offset + packet_size]
+            if headerless_buffer == b"\x00":
+                headerless_buffer = b""
 
             if client.commander is not None:
                 from src.answer.task_handlers import maybe_reset_daily_weekly

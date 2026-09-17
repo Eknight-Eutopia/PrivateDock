@@ -1,6 +1,7 @@
 import json
 import math
 import random
+from collections import deque
 from dataclasses import dataclass
 from typing import Optional
 
@@ -22,6 +23,7 @@ CHAPTER_OP_SUB_STATE = 9
 CHAPTER_OP_SUB_TELEPORT = 19
 CHAPTER_OP_REQUEST = 49
 
+CHAPTER_ATTACH_NONE = 0
 CHAPTER_ATTACH_BORN = 1
 CHAPTER_ATTACH_BOX = 2
 CHAPTER_ATTACH_SUPPLY = 3
@@ -31,10 +33,19 @@ CHAPTER_ATTACH_ELITE = 4
 CHAPTER_ATTACH_AMBUSH = 5
 CHAPTER_ATTACH_ENEMY = 6
 CHAPTER_ATTACH_TORPEDO_ENEMY = 7
+CHAPTER_ATTACH_STORY = 9
+CHAPTER_ATTACH_AREA_BOSS = 11
 CHAPTER_ATTACH_CHAMPION = 12
+CHAPTER_ATTACH_TORPEDO_FLEET = 14
+CHAPTER_ATTACH_CHAMPION_PATROL = 15
 CHAPTER_ATTACH_TRANSPORT = 17
 CHAPTER_ATTACH_TRANSPORT_DST = 18
+CHAPTER_ATTACH_CHAMPION_SUB = 19
+CHAPTER_ATTACH_ONI = 20
+CHAPTER_ATTACH_ONI_TARGET = 21
 CHAPTER_ATTACH_BOMB_ENEMY = 24
+CHAPTER_ATTACH_BARRIER = 25
+CHAPTER_ATTACH_HUGE_SUPPLY = 26
 CHAPTER_ATTACH_LANDBASE = 100
 
 # Box (AttachBox = 2) outcome types -- mirror client ChapterConst box types.
@@ -59,8 +70,6 @@ ITEM_DATA_STATS_CATEGORY = "sharecfgdata/item_data_statistics.json"
 BENEFIT_BUFF_CATEGORY = "ShareCfg/benefit_buff_template.json"
 FRIENDLY_DATA_CATEGORY = "ShareCfg/friendly_data_template.json"
 FRIENDLY_DATA_SHARE_CATEGORY = "sharecfgdata/friendly_data_template.json"
-
-ELITE_FLEET_STATE_FIELD = 1001
 
 chapter_ambush_rand = random.Random()
 
@@ -414,7 +423,38 @@ def _parse_uint32_list(value) -> list:
     return result
 
 
-def find_move_path(grids: list, start: ChapterPos, end: ChapterPos) -> list:
+_BOX_TYPE_CACHE: dict[int, Optional[int]] = {}
+
+
+def get_chapter_box_type(box_id: int) -> Optional[int]:
+    if box_id <= 0:
+        return None
+    if box_id in _BOX_TYPE_CACHE:
+        return _BOX_TYPE_CACHE[box_id]
+    try:
+        from src.orm.config_entry import get_config_entry
+        from src.db.store import decode_json_value
+        entry = get_config_entry("ShareCfg/box_data_template.json", str(box_id))
+        if entry is not None:
+            data = decode_json_value(entry.data)
+            if isinstance(data, dict):
+                b_type = data.get("type")
+                _BOX_TYPE_CACHE[box_id] = b_type
+                return b_type
+    except Exception:
+        pass
+    _BOX_TYPE_CACHE[box_id] = None
+    return None
+
+
+def find_move_path(
+    grids: list,
+    start: ChapterPos,
+    end: ChapterPos,
+    current=None,
+    moving_group_id: int = 0,
+    is_submarine: bool = False,
+) -> Optional[list]:
     if start.row == end.row and start.column == end.column:
         return [start]
     walkable = {}
@@ -425,35 +465,106 @@ def find_move_path(grids: list, start: ChapterPos, end: ChapterPos) -> list:
     end_key = (end.row, end.column)
     if start_key not in walkable or end_key not in walkable:
         return None
-    queue = [start_key]
-    visited = {start_key: True}
-    parent = {}
+
+    obstacles: set[tuple[int, int]] = set()
+    non_stay_points: set[tuple[int, int]] = set()
+
+    if current is not None:
+        # 1. Cells in current.cell_list
+        for cell in getattr(current, "cell_list", []):
+            if cell.pos is None:
+                continue
+            r, c = cell.pos.row, cell.pos.column
+            flag = getattr(cell, "item_flag", 0)
+            item_type = getattr(cell, "item_type", 0)
+            item_id = getattr(cell, "item_id", 0)
+
+            if flag == CHAPTER_CELL_ACTIVE:
+                # Barrier attachment or barrier box
+                if item_type == CHAPTER_ATTACH_BARRIER:
+                    obstacles.add((r, c))
+                    non_stay_points.add((r, c))
+                elif item_type == CHAPTER_ATTACH_BOX:
+                    b_type = get_chapter_box_type(item_id)
+                    if b_type == BOX_BARRIER:
+                        obstacles.add((r, c))
+                        non_stay_points.add((r, c))
+                    elif b_type == BOX_TORPEDO and not is_submarine:
+                        obstacles.add((r, c))
+                elif not is_submarine:
+                    # Enemy attachments
+                    if item_type in (
+                        CHAPTER_ATTACH_ENEMY,
+                        CHAPTER_ATTACH_AMBUSH,
+                        CHAPTER_ATTACH_ELITE,
+                        CHAPTER_ATTACH_BOSS,
+                        CHAPTER_ATTACH_AREA_BOSS,
+                        CHAPTER_ATTACH_BOMB_ENEMY,
+                        CHAPTER_ATTACH_CHAMPION,
+                        CHAPTER_ATTACH_TORPEDO_ENEMY,
+                    ):
+                        obstacles.add((r, c))
+                        if item_type in (CHAPTER_ATTACH_BOMB_ENEMY, CHAPTER_ATTACH_ONI):
+                            non_stay_points.add((r, c))
+                    elif item_type == CHAPTER_ATTACH_STORY:
+                        # Active story cell blocks pass-through, but can be entered
+                        obstacles.add((r, c))
+
+        # 2. Champions in current.ai_list
+        if not is_submarine:
+            for ai in getattr(current, "ai_list", []):
+                if ai.pos is None:
+                    continue
+                if getattr(ai, "item_flag", 0) != CHAPTER_CELL_DISABLED:
+                    obstacles.add((ai.pos.row, ai.pos.column))
+
+        # 3. Friendly surface fleets in current.main_group_list
+        # A fleet can pass through another friendly fleet, but cannot end its move on it.
+        if not is_submarine:
+            for group in getattr(current, "main_group_list", []):
+                if group.pos is None:
+                    continue
+                if moving_group_id != 0 and group.id == moving_group_id:
+                    continue
+                non_stay_points.add((group.pos.row, group.pos.column))
+
+    if end_key in non_stay_points:
+        return None
+
+    queue = deque([start_key])
+    visited = {start_key: None}
+
     while queue:
-        current = queue.pop(0)
-        if current == end_key:
+        cur = queue.popleft()
+        if cur == end_key:
             break
-        neighbors = []
-        neighbors.append((current[0] + 1, current[1]))
-        if current[0] > 1:
-            neighbors.append((current[0] - 1, current[1]))
-        neighbors.append((current[0], current[1] + 1))
-        if current[1] > 1:
-            neighbors.append((current[0], current[1] - 1))
+
+        # Client oriented pathfinding neighbor order: (r+1, c), (r-1, c), (r, c+1), (r, c-1)
+        neighbors = [
+            (cur[0] + 1, cur[1]),
+            (cur[0] - 1, cur[1]),
+            (cur[0], cur[1] + 1),
+            (cur[0], cur[1] - 1),
+        ]
         for neighbor in neighbors:
+            if neighbor[0] < 1 or neighbor[1] < 1:
+                continue
             if neighbor in visited or neighbor not in walkable:
                 continue
-            visited[neighbor] = True
-            parent[neighbor] = current
+            if neighbor != end_key and neighbor in obstacles:
+                continue
+
+            visited[neighbor] = cur
             queue.append(neighbor)
+
     if end_key not in visited:
         return None
+
     path = []
-    current = end_key
-    while True:
-        path.append(ChapterPos(row=current[0], column=current[1]))
-        if current == start_key:
-            break
-        current = parent[current]
+    curr = end_key
+    while curr is not None:
+        path.append(ChapterPos(row=curr[0], column=curr[1]))
+        curr = visited[curr]
     path.reverse()
     return path
 

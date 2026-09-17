@@ -9,12 +9,7 @@ SERVER_STATUS_CACHE_TTL = 30.0
 SERVER_STATUS_TIMEOUT = 2.0
 SERVER_TICKET_PREFIX = "=*=*=*=PrivateDock=*=*=*="
 
-# Client Server.STATUS.VINDICATE == 1 renders the "Server Maintenance" popup at
-# login, so the seed and the probe-failure fallback must both be NORMAL: the
-# client is talking to the gate when it asks, and if the game port were really
-# down it would fail to connect anyway. The probe only ever demotes on load.
-SSTATE_NORMAL = 0
-SSTATE_BUSY = 3
+SSTATE_OFFLINE = 1
 
 _cache_entries: Optional[dict[int, dict]] = None
 _cache_refreshed_at: float = 0.0
@@ -32,7 +27,7 @@ def _default_entries(servers: list[ServerConfig]) -> dict[int, dict]:
         entries[server.id] = {
             "name": name,
             "commit": "",
-            "state": SSTATE_NORMAL,
+            "state": SSTATE_OFFLINE,
             "server_load": 0,
             "db_load": 0,
         }
@@ -110,7 +105,7 @@ async def _probe_server(server: ServerConfig) -> dict:
     entry = {
         "name": server.name.strip() or server.ip,
         "commit": "",
-        "state": SSTATE_NORMAL,
+        "state": SSTATE_OFFLINE,
         "server_load": 0,
         "db_load": 0,
     }

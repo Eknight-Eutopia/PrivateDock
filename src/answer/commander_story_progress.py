@@ -127,6 +127,33 @@ def handle_commander_story_progress(
     except Exception:
         pass
 
+    try:
+        from src.orm.chapter_elite_fleet import list_chapter_elite_fleets_sync
+        elite_fleets = list_chapter_elite_fleets_sync(commander_id)
+        for f in elite_fleets:
+            fleet_proto = response.fleet_list.add()
+            fleet_proto.id = f["formation_id"]
+            for t in f.get("main_team", []):
+                tm = fleet_proto.main_team.add()
+                tm.id = t.get("id", 0)
+                tm.ship_list.extend(t.get("ship_list", []))
+                tm.commander_main = t.get("commander_main", 0)
+                tm.commander_sub = t.get("commander_sub", 0)
+            for t in f.get("submarine_team", []):
+                tm = fleet_proto.submarine_team.add()
+                tm.id = t.get("id", 0)
+                tm.ship_list.extend(t.get("ship_list", []))
+                tm.commander_main = t.get("commander_main", 0)
+                tm.commander_sub = t.get("commander_sub", 0)
+            for t in f.get("support_team", []):
+                tm = fleet_proto.support_team.add()
+                tm.id = t.get("id", 0)
+                tm.ship_list.extend(t.get("ship_list", []))
+                tm.commander_main = t.get("commander_main", 0)
+                tm.commander_sub = t.get("commander_sub", 0)
+    except Exception:
+        pass
+
     data = response.SerializeToString()
     header = generate_packet_header(13001, data, client.packet_index)
     client.write_to_buffer(header + data)

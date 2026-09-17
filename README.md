@@ -8,16 +8,14 @@
 
 PrivateDock implements most of the core game systems.
 
-Already works:
+Supported features:
 - Secretary, Juustagram
 - Dock, Fleets (incl. submarines), Equipment, Meowfficers
-- Ships Build (with custom max orders), Requisition, Retire
+- Ship Building (with custom max orders), Requisition, Retirement
 - Shops, Missions, Handbook, Tactical Classes, Dorm, Fleet Technology, Research Academy, Shipyard
 - Main Campaign, War Archives, Daily Raids, Exercises
 
-For a per-system breakdown of what
-works, what is only partly covered, and what is not implemented yet, see the
-**[Implementation Status](docs/STATUS.md)** page.
+For a per-system breakdown of what works, what is only partly covered, and what is not implemented yet, see the **[Implementation Status](docs/STATUS.md)** page.
 
 ---
 

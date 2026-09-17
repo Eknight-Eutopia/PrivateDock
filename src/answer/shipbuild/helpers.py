@@ -5,7 +5,11 @@ from typing import Optional
 
 from sqlalchemy import text as _sql_text
 
-from src.config.game_variables import get_build_dock_slots
+from src.config.game_variables import (
+    get_build_dock_slots,
+    get_build_time_multiplier,
+    get_default_build_time_seconds,
+)
 from src.consts.build import MAX_BUILD_WORK_COUNT
 from src.db.store import get_default_store
 from src.orm.commander import (
@@ -108,7 +112,8 @@ def settle_build_queue(builds: list, durations: dict, now: datetime.datetime) ->
     for b in builds:
         if b["state"] != BUILD_STATE_QUEUED or b["finishes_at"] is None:
             continue
-        dur = int(durations.get(b["ship_id"]) or DEFAULT_BUILD_TIME)
+        dur_val = durations.get(b["ship_id"])
+        dur = int(dur_val if dur_val is not None else round(get_default_build_time_seconds() * get_build_time_multiplier()))
         if b["finishes_at"] - datetime.timedelta(seconds=dur) <= now:
             b["state"] = BUILD_STATE_STARTED
 
@@ -124,7 +129,8 @@ def settle_build_queue(builds: list, durations: dict, now: datetime.datetime) ->
     for b in builds:
         if b["state"] != BUILD_STATE_QUEUED:
             continue
-        dur = int(durations.get(b["ship_id"]) or DEFAULT_BUILD_TIME)
+        dur_val = durations.get(b["ship_id"])
+        dur = int(dur_val if dur_val is not None else round(get_default_build_time_seconds() * get_build_time_multiplier()))
         start_ts = heapq.heappop(heap)
         start = datetime.datetime.fromtimestamp(start_ts, datetime.timezone.utc)
         finish = start + datetime.timedelta(seconds=max(0, dur))
@@ -181,7 +187,7 @@ def load_build_rows_sync(commander_id: int, session) -> list:
             "pool_id": int(r[2]),
             "finishes_at": _as_utc(_parse_row_finish(r[3])),
             "state": (int(r[4]) if r[4] is not None else BUILD_STATE_STARTED),
-            "duration": int(r[5]) if r[5] is not None else DEFAULT_BUILD_TIME,
+            "duration": int(r[5]) if r[5] is not None else get_default_build_time_seconds(),
         })
     return out
 
@@ -236,7 +242,8 @@ def plan_builds_sync(commander_id: int, draws: list,
                 row = session.execute(_sql_text(
                     "SELECT COALESCE(build_time, 600) FROM ships WHERE template_id = :sid"
                 ), {"sid": ship_id}).fetchone()
-                durations[ship_id] = int(row[0]) if row else DEFAULT_BUILD_TIME
+                base_time = int(row[0]) if row and row[0] is not None else get_default_build_time_seconds()
+                durations[ship_id] = int(round(base_time * get_build_time_multiplier()))
             rows.append({
                 # placeholder ids keep the draw order; real ids come from INSERT
                 "id": -(len(rows) + 1),

@@ -822,13 +822,13 @@ def _handle_task_list_sync(
     claimed = {r.task_id for r in rows if r.submit_time > 0}
 
     # Accept the next group when it is fresh (no accepted task) AND every
-    # earlier group is fully claimed AND it is calendar-unlocked. Capture
-    # 2026-09-05 (activity 6021): each handout of day N+1 followed the CS_20005
-    # claims of BOTH day-N tasks (35264/35265 -> day 5, 35266/35267 -> day 6,
-    # 35268/35269 -> day 7) - originally never grants a group while the
-    # previous one is unfinished, even inside the unlocked window. A group
-    # that is already accepted but not fully claimed stays the "current" day
-    # (data3) and gates the next handout.
+    # earlier group is fully claimed AND it is calendar-unlocked. Each
+    # handout of day N+1 followed the CS_20005 claims of BOTH day-N tasks
+    # (35264/35265 -> day 5, 35266/35267 -> day 6, 35268/35269 -> day 7)
+    # - originally never grants a group while the previous one is
+    # unfinished, even inside the unlocked window. A group that is already
+    # accepted but not fully claimed stays the "current" day (data3) and
+    # gates the next handout.
     newly: list[int] = []
     current_day_ids: list[int] = []  # the day's rows to (re)push, if any are missing
     if cmd == 1:

@@ -4,7 +4,7 @@ from src.config.config import ServerConfig as ConfigServerConfig
 from src.connection.client import Client
 
 SERVER_STATE_ONLINE = 0
-SERVER_STATE_OFFLINE = 1  # == client Server.STATUS.VINDICATE ("Server Maintenance") — never advertise it
+SERVER_STATE_OFFLINE = 1
 SERVER_STATE_FULL = 2
 SERVER_STATE_BUSY = 3
 
@@ -18,12 +18,12 @@ def build_server_info(
     output = []
     for i, server in enumerate(servers):
         status = statuses.get(server.id)
-        state = SERVER_STATE_ONLINE
+        state = SERVER_STATE_OFFLINE
         name = server.ip
         if status is not None:
             if status.get("name"):
                 name = status["name"]
-            state = status.get("state", SERVER_STATE_ONLINE)
+            state = status.get("state", SERVER_STATE_OFFLINE)
             name = _format_server_name(name, status.get("commit", ""))
         else:
             name = _format_server_name(name, "")

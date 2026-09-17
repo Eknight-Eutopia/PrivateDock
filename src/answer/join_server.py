@@ -59,19 +59,21 @@ async def _do_join_server(proto_data, client):
             log_event("Server", "SC_10023", f"failed to fetch device mapping: {e}", LOG_LEVEL_ERROR)
             return
 
+    if client.auth_arg2 == 0:
+        client.auth_arg2 = parse_server_ticket(proto_data.server_ticket if proto_data.HasField("server_ticket") else "")
+
+    if client.auth_arg2 != 0:
+        from src.orm import get_yostarus_map_by_arg2
+        try:
+            mapping = await get_yostarus_map_by_arg2(client.auth_arg2)
+            if mapping is not None:
+                account_id = mapping["account_id"]
+        except Exception as e:
+            log_event("Server", "SC_10023", f"failed to fetch account mapping: {e}", LOG_LEVEL_ERROR)
+            return
+
     if account_id == 0:
-        if client.auth_arg2 == 0:
-            client.auth_arg2 = parse_server_ticket(proto_data.server_ticket if proto_data.HasField("server_ticket") else "")
-        if client.auth_arg2 != 0:
-            from src.orm import get_yostarus_map_by_arg2
-            try:
-                mapping = await get_yostarus_map_by_arg2(client.auth_arg2)
-                if mapping is not None:
-                    account_id = mapping["account_id"]
-            except Exception as e:
-                log_event("Server", "SC_10023", f"failed to fetch account mapping: {e}", LOG_LEVEL_ERROR)
-                return
-        if account_id == 0 and get_config().create_player.skip_onboarding and client.auth_arg2 != 0:
+        if get_config().create_player.skip_onboarding and client.auth_arg2 != 0:
             try:
                 account_id = await create_commander(client, client.auth_arg2, None, [201211])
             except Exception as e:
@@ -92,18 +94,28 @@ async def _do_join_server(proto_data, client):
     try:
         client.commander = await get_commander_core_by_id(account_id)
         if client.commander is not None:
-            client.commander.load()
-            register_active_client(client.commander.commander_id, client)
-            # Secretary affinity catch-up: the leftmost (main) secretary keeps
-            # accruing 1 affinity point per 300-320 min while the player is
-            # offline; apply everything due right now so the login dock sync
-            # (SC_12001/SC_12010) already carries the fresh intimacy value.
-            try:
-                from src.orm.secretary import tick_secretary_affinity
-                await tick_secretary_affinity(client.commander.commander_id, client)
-            except Exception as e:
-                log_event("Server", "JoinServer",
-                          f"secretary affinity catch-up failed: {e}", LOG_LEVEL_ERROR)
+            if client.auth_arg2 != 0:
+                from src.orm import get_yostarus_map_by_arg2
+                try:
+                    mapping = await get_yostarus_map_by_arg2(client.auth_arg2)
+                    if mapping is None or mapping["account_id"] != client.commander.account_id:
+                        # Loaded commander belongs to a different user/arg2 on this server
+                        client.commander = None
+                except Exception as e:
+                    log_event("Server", "SC_10023", f"failed to verify commander ownership: {e}", LOG_LEVEL_ERROR)
+            if client.commander is not None:
+                client.commander.load()
+                register_active_client(client.commander.commander_id, client)
+                # Secretary affinity catch-up: the leftmost (main) secretary keeps
+                # accruing 1 affinity point per 300-320 min while the player is
+                # offline; apply everything due right now so the login dock sync
+                # (SC_12001/SC_12010) already carries the fresh intimacy value.
+                try:
+                    from src.orm.secretary import tick_secretary_affinity
+                    await tick_secretary_affinity(client.commander.commander_id, client)
+                except Exception as e:
+                    log_event("Server", "JoinServer",
+                              f"secretary affinity catch-up failed: {e}", LOG_LEVEL_ERROR)
     except NotFoundError:
         await client.send_message(10023, _make_sc10023(USER_STATUS_OK, 0, server_load, db_load))
         return

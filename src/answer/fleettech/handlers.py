@@ -39,14 +39,6 @@ def handle_technology_nation_proxy(_buffer: bytes, client: Client) -> tuple:
     for group_id in groups:
         fleet_tech_upsert_group(state, group_id)
 
-    max_additions = fleet_tech_build_max_additions(state, groups, templates)
-    tech_set_list = fleet_tech_build_tech_set_list(state, max_additions)
-
-    overrides = []
-    for ts in tech_set_list:
-        overrides.append({"ship_type": ts.ship_type, "attr_type": ts.attr_type, "set_value": ts.set_value})
-    fleet_tech_set_attr_overrides(state, overrides)
-
     try:
         save_commander_fleet_tech_state(client.commander.commander_id, state)
     except Exception as e:
@@ -66,6 +58,7 @@ def handle_technology_nation_proxy(_buffer: bytes, client: Client) -> tuple:
         ft.rewarded_tech = gs.get("rewarded_tech_id", 0)
         response.tech_list.append(ft)
 
+    tech_set_list = fleet_tech_build_tech_set_list(state)
     for ts in tech_set_list:
         response.techset_list.append(ts)
 
@@ -304,22 +297,18 @@ def handle_claim_technology_camp_awards_one_step(buffer: bytes, client: Client) 
 def handle_set_fleet_tech_attr_addition(buffer: bytes, client: Client) -> tuple:
     try:
         payload = protobuf.CS_64009()
-        payload.ParseFromString(buffer)
+        if buffer and buffer != b"\x00":
+            payload.ParseFromString(buffer)
     except Exception as e:
         return 0, 64010, e
 
     response = protobuf.SC_64010()
     response.result = RESULT_FAILURE
 
-    groups, templates, _err = _load_configs()
-    if _err is not None:
-        return 0, 64010, _err
-
     try:
         state = get_or_create_commander_fleet_tech_state(client.commander.commander_id)
-        max_additions = fleet_tech_build_max_additions(state, groups, templates)
         techset_list = list(payload.techset_list)
-        normalized, ok = fleet_tech_normalize_overrides(techset_list, max_additions)
+        normalized, ok = fleet_tech_normalize_overrides(techset_list)
         if not ok:
             asyncio.create_task(client.send_message(64010, response))
             return 0, 64010, None

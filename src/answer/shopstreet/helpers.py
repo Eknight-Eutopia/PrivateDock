@@ -18,7 +18,7 @@ DEFAULT_REFRESH_SECONDS = 24 * 60 * 60
 # list atomically instead of merging two draws.
 _REFRESH_LOCK = threading.Lock()
 
-from src.config.game_variables import get_max_gear_skin_boxes
+from src.config.game_variables import get_max_gear_skin_boxes, get_shopstreet_goods_count
 
 # At most this many gear-skin-box offers (item type 11, e.g. the 7000-coin
 # "Gear Skin Box (...)") may appear in one street list; the rest of the pool
@@ -142,14 +142,15 @@ class RefreshOptions:
 
 def refresh_if_needed(commander_id: int, now_unix: int):
     state, goods = ensure_state(commander_id, now_unix)
+    target_count = get_shopstreet_goods_count()
     # Heal anything the schema alone cannot rule out: the PK forbids duplicate
     # goods ids, but a list longer than the draw size can only be corruption
     # (or an admin override), so regenerate it just like an empty one.
     if (now_unix >= state["next_flash_time"] or len(goods) == 0
-            or len(goods) > DEFAULT_GOODS_COUNT):
+            or len(goods) > target_count):
         reset_flash = _should_reset_flash_count(state["next_flash_time"], now_unix)
         options = RefreshOptions(
-            goods_count=DEFAULT_GOODS_COUNT,
+            goods_count=target_count,
             next_flash_in_seconds=DEFAULT_REFRESH_SECONDS,
             set_flash_count=0 if reset_flash else state.get("flash_count", 0),
             buy_count=1,
@@ -173,7 +174,7 @@ def ensure_state(commander_id: int, now_unix: int):
         )
         state = {"commander_id": commander_id, "level": 1, "next_flash_time": next_flash, "level_up_time": 0, "flash_count": 0}
         options = RefreshOptions(
-            goods_count=DEFAULT_GOODS_COUNT,
+            goods_count=get_shopstreet_goods_count(),
             next_flash_in_seconds=DEFAULT_REFRESH_SECONDS,
             set_flash_count=0,
             buy_count=1,
@@ -282,7 +283,7 @@ def _apply_goods_transactional(commander_id: int, goods: list[dict],
 
 
 def _refresh_goods(commander_id: int, now_unix: int, options: RefreshOptions) -> list[dict]:
-    goods_count = options.goods_count if options.goods_count is not None else DEFAULT_GOODS_COUNT
+    goods_count = options.goods_count if options.goods_count is not None else get_shopstreet_goods_count()
     flash_count = options.set_flash_count if options.set_flash_count is not None else 0
     buy_count = options.buy_count if options.buy_count is not None else 1
 

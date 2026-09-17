@@ -13,7 +13,7 @@ from .helpers import (
     CHAPTER_OP_SUB_STATE, CHAPTER_OP_SUB_TELEPORT,
     CHAPTER_OP_STRATEGY,
     CHAPTER_CHANCE_BASE, CHAPTER_ATTACH_AMBUSH, CHAPTER_CELL_ACTIVE,
-    CHAPTER_CELL_AMBUSH, ELITE_FLEET_STATE_FIELD, ChapterPos,
+    CHAPTER_CELL_AMBUSH, ChapterPos,
     find_chapter_group, find_chapter_cell_at, upsert_chapter_cell,
     load_chapter_template, parse_chapter_grids, find_move_path,
     build_move_path, build_pos, collect_chapter_ships,
@@ -27,6 +27,7 @@ from .helpers import (
     resolve_ambush_expedition,
     BOX_DROP, BOX_STRATEGY, BOX_AIRSTRIKE, BOX_ENEMY, BOX_SUPPLY, BOX_TORPEDO,
     get_group_max_ammo,
+    _get_config_entry, CHAPTER_TEMPLATE_CATEGORY,
 )
 from .commander_strike import evaluate_commander_preemptive_strikes
 from .submarine_strike import evaluate_submarine_auto_attacks
@@ -323,7 +324,7 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
         grids = parse_chapter_grids(template.grids)
         start = ChapterPos(row=group.pos.row, column=group.pos.column)
         end = ChapterPos(row=payload.act_arg_1, column=payload.act_arg_2)
-        path = find_move_path(grids, start, end)
+        path = find_move_path(grids, start, end, current=current, moving_group_id=payload.group_id)
         if not path:
             response = protobuf.SC_13104()
             response.result = 1
@@ -520,12 +521,16 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
 
     elif act == CHAPTER_OP_ENEMY_ROUND:
         current.round = current.round + 1
+        sub_acts, sub_map_updates = evaluate_submarine_auto_attacks(client, current)
         state_bytes = current.SerializeToString()
         upsert_chapter_state(client.commander.commander_id, current.id, state_bytes)
 
         response = protobuf.SC_13104()
         response.result = 0
         response.auto_battle_time_update = 0
+        if sub_acts:
+            response.submarine_act_list.extend(sub_acts)
+            response.map_update.extend(sub_map_updates)
         asyncio.create_task(client.send_message(13104, response))
         return 0, 13104, None
 
@@ -552,7 +557,7 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
         if template is not None:
             grids = parse_chapter_grids(template.grids)
             start = ChapterPos(row=group.pos.row, column=group.pos.column)
-            path = find_move_path(grids, start, target)
+            path = find_move_path(grids, start, target, current=current, moving_group_id=payload.group_id, is_submarine=True)
             if path is None:
                 response = protobuf.SC_13104()
                 response.result = 1
@@ -565,6 +570,7 @@ def handle_chapter_action(buffer: bytes, client: Client) -> tuple[int, int, Opti
                     consume_resource(_cid, 2, cost)
 
         group.pos.CopyFrom(build_pos(target))
+        group.start_pos.CopyFrom(build_pos(target))
         state_bytes = current.SerializeToString()
         upsert_chapter_state(client.commander.commander_id, current.id, state_bytes)
 
@@ -807,6 +813,69 @@ def handle_get_chapter_drop_ship_list(buffer: bytes, client: Client) -> tuple[in
     return 0, 13110, None
 
 
+def handle_update_custom_fleet(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
+    try:
+        payload = protobuf.CS_13107()
+        payload.ParseFromString(buffer)
+    except Exception as e:
+        return 0, 13108, e
+
+    entry = _get_config_entry(CHAPTER_TEMPLATE_CATEGORY, str(payload.id))
+    formation_id = (entry.get("formation") if isinstance(entry, dict) else 0) or payload.id
+
+    def _team_to_dict(t) -> dict:
+        return {
+            "id": t.id or 0,
+            "ship_list": [int(s) for s in t.ship_list if s],
+            "commander_main": t.commander_main or 0,
+            "commander_sub": t.commander_sub or 0,
+        }
+
+    main_team = [_team_to_dict(t) for t in payload.fleet.main_team]
+    submarine_team = [_team_to_dict(t) for t in payload.fleet.submarine_team]
+    support_team = [_team_to_dict(t) for t in payload.fleet.support_team]
+
+    from src.orm.chapter_elite_fleet import save_chapter_elite_fleet_sync
+    save_chapter_elite_fleet_sync(
+        client.commander.commander_id,
+        formation_id,
+        main_team,
+        submarine_team,
+        support_team,
+    )
+
+    response = protobuf.SC_13108()
+    response.result = 0
+    try:
+        loop = asyncio.get_running_loop()
+        loop.create_task(client.send_message(13108, response))
+    except RuntimeError:
+        asyncio.run(client.send_message(13108, response))
+    return 0, 13108, None
+
+
+def _populate_fleet_proto(fleet_proto, f: dict) -> None:
+    fleet_proto.id = f["formation_id"]
+    for t in f.get("main_team", []):
+        tm = fleet_proto.main_team.add()
+        tm.id = t.get("id", 0)
+        tm.ship_list.extend(t.get("ship_list", []))
+        tm.commander_main = t.get("commander_main", 0)
+        tm.commander_sub = t.get("commander_sub", 0)
+    for t in f.get("submarine_team", []):
+        tm = fleet_proto.submarine_team.add()
+        tm.id = t.get("id", 0)
+        tm.ship_list.extend(t.get("ship_list", []))
+        tm.commander_main = t.get("commander_main", 0)
+        tm.commander_sub = t.get("commander_sub", 0)
+    for t in f.get("support_team", []):
+        tm = fleet_proto.support_team.add()
+        tm.id = t.get("id", 0)
+        tm.ship_list.extend(t.get("ship_list", []))
+        tm.commander_main = t.get("commander_main", 0)
+        tm.commander_sub = t.get("commander_sub", 0)
+
+
 def handle_remove_elite_target_ship(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
     try:
         payload = protobuf.CS_13111()
@@ -815,148 +884,17 @@ def handle_remove_elite_target_ship(buffer: bytes, client: Client) -> tuple[int,
         return 0, 13112, e
 
     ship_id = payload.ship_id
-    if client.commander.owned_ships_map is None:
-        client.commander.load()
-    if ship_id not in client.commander.owned_ships_map:
-        return 0, 13112, Exception(f"ship not owned: {ship_id}")
+    from src.orm.chapter_elite_fleet import remove_ship_from_elite_fleets_sync
+    updated_fleets = remove_ship_from_elite_fleets_sync(client.commander.commander_id, ship_id)
 
-    row = get_chapter_state_by_commander(client.commander.commander_id)
-    if row is None:
-        response = _build_chapter_elite_fleet_response([])
-        asyncio.create_task(client.send_message(13112, response))
-        return 0, 13112, None
-
-    state_bytes = bytes(row["state"])
-    if not state_bytes:
-        response = _build_chapter_elite_fleet_response([])
-        asyncio.create_task(client.send_message(13112, response))
-        return 0, 13112, None
+    response = protobuf.SC_13112()
+    for f in updated_fleets:
+        _populate_fleet_proto(response.fleet_list.add(), f)
 
     try:
-        fleets = _parse_elite_fleet_from_state(state_bytes)
-    except Exception as e:
-        return 0, 13112, e
-
-    updated = _remove_ship_from_fleets(fleets, ship_id)
-    try:
-        updated_state = _set_elite_fleet_in_state(state_bytes, updated)
-    except Exception as e:
-        return 0, 13112, e
-
-    upsert_chapter_state(client.commander.commander_id, row["chapter_id"], updated_state)
-
-    response = _build_chapter_elite_fleet_response(updated)
-    asyncio.create_task(client.send_message(13112, response))
+        loop = asyncio.get_running_loop()
+        loop.create_task(client.send_message(13112, response))
+    except RuntimeError:
+        asyncio.run(client.send_message(13112, response))
     return 0, 13112, None
 
-
-# ── Elite fleet helpers ──
-
-
-def _build_chapter_elite_fleet_response(fleets: list):
-    response = protobuf.SC_13112()
-    for f in fleets:
-        response.fleet_list.append(f)
-    return response
-
-
-def _parse_elite_fleet_from_state(state: bytes) -> list:
-    if not state:
-        return []
-    current = protobuf.CURRENTCHAPTERINFO()
-    current.ParseFromString(state)
-    fleets = []
-    idx = 0
-    data = current.SerializeToString()
-    while idx < len(data):
-        tag, idx = read_varint(data, idx)
-        field_num = tag >> 3
-        wire_type = tag & 7
-        if wire_type == 2:
-            length, idx = read_varint(data, idx)
-            field_data = data[idx:idx + length]
-            idx += length
-            if field_num == ELITE_FLEET_STATE_FIELD:
-                fleet = protobuf.FLEET_INFO()
-                fleet.ParseFromString(field_data)
-                fleets.append(fleet)
-        elif wire_type == 0:
-            _, idx = read_varint(data, idx)
-        elif wire_type == 1:
-            idx += 8
-        elif wire_type == 5:
-            idx += 4
-        else:
-            break
-    return fleets
-
-
-def _set_elite_fleet_in_state(state: bytes, fleets: list) -> bytes:
-    current = protobuf.CURRENTCHAPTERINFO()
-    current.ParseFromString(state)
-    known_fields = set(f.number for f in current.DESCRIPTOR.fields)
-    data = state
-    idx = 0
-    out = bytearray()
-    while idx < len(data):
-        tag, idx = read_varint(data, idx)
-        field_num = tag >> 3
-        wire_type = tag & 7
-        tag_bytes = encode_varint(tag)
-        if wire_type == 2:
-            length, idx = read_varint(data, idx)
-            field_data = data[idx:idx + length]
-            idx += length
-            if field_num not in known_fields:
-                if field_num != ELITE_FLEET_STATE_FIELD:
-                    out.extend(tag_bytes)
-                    out.extend(encode_varint(length))
-                    out.extend(field_data)
-        elif wire_type == 0:
-            val, idx = read_varint(data, idx)
-            if field_num not in known_fields:
-                out.extend(tag_bytes)
-                out.extend(encode_varint(val))
-        elif wire_type == 1:
-            val = data[idx:idx + 8]
-            idx += 8
-            if field_num not in known_fields:
-                out.extend(tag_bytes)
-                out.extend(val)
-        elif wire_type == 5:
-            val = data[idx:idx + 4]
-            idx += 4
-            if field_num not in known_fields:
-                out.extend(tag_bytes)
-                out.extend(val)
-        else:
-            break
-
-    for fleet in fleets:
-        fleet_data = fleet.SerializeToString()
-        tag = (ELITE_FLEET_STATE_FIELD << 3) | 2
-        out.extend(encode_varint(tag))
-        out.extend(encode_varint(len(fleet_data)))
-        out.extend(fleet_data)
-
-    result = bytes(out)
-    current2 = protobuf.CURRENTCHAPTERINFO()
-    current2.ParseFromString(result)
-    return current2.SerializeToString()
-
-
-def _remove_ship_from_fleets(fleets: list, ship_id: int) -> list:
-    for fleet in fleets:
-        _remove_ship_from_teams(fleet.main_team, ship_id)
-        _remove_ship_from_teams(fleet.submarine_team, ship_id)
-        _remove_ship_from_teams(fleet.support_team, ship_id)
-    return fleets
-
-
-def _remove_ship_from_teams(teams: list, ship_id: int):
-    for team in teams:
-        ships = list(team.ship_list)
-        filtered = [sid for sid in ships if sid != ship_id]
-        team.ship_list[:] = filtered
-
-from src.protobuf.varint import read_varint, encode_varint

@@ -48,12 +48,25 @@ def handle_get_ship_discuss(buffer: bytes, client: Client) -> tuple[int, int, Op
     except Exception as e:
         return 0, 17102, e
 
+    from src.answer.evaluate_ship import _get_ship_discuss_state, _count_ship_hearts
+
+    group_id = payload.ship_group_id
+    state = _get_ship_discuss_state(group_id)
+
     response = protobuf.SC_17102()
     discuss = protobuf.SHIP_DISCUSS_INFO()
-    discuss.ship_group_id = payload.ship_group_id
-    discuss.discuss_count = 0
-    discuss.heart_count = 0
-    discuss.daily_discuss_count = 0
+    discuss.ship_group_id = group_id
+    discuss.discuss_count = len(state.discuss_list)
+    discuss.heart_count = _count_ship_hearts(group_id)
+    discuss.daily_discuss_count = state.daily_discuss_count
+    for item in state.discuss_list:
+        discuss.discuss_list.append(protobuf.DISCUSS_INFO(
+            id=item["id"],
+            nick_name=item["nick_name"],
+            context=item["context"],
+            good_count=item["good_count"],
+            bad_count=item["bad_count"],
+        ))
     response.ship_discuss.CopyFrom(discuss)
     asyncio.create_task(client.send_message(17102, response))
     return 0, 17102, None

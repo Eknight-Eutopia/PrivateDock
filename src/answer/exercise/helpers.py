@@ -6,7 +6,9 @@ real battleable ship fleets, score/merit computation, and season pushes.
 
 from __future__ import annotations
 
+import json
 import random
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -157,13 +159,15 @@ def recompute_state(state: ExerciseState, now: Optional[datetime] = None) -> Exe
         state.next_recover_time = next_recover_boundary(now)
     while now_ts >= state.next_recover_time:
         if state.fight_count < EXERCISE_MAX_ATTEMPTS:
-            state.fight_count = min(EXERCISE_MAX_ATTEMPTS, state.fight_count + EXERCISE_RECOVER_AMOUNT)
+            from src.config.game_variables import get_exercise_recover_amount
+            state.fight_count = min(EXERCISE_MAX_ATTEMPTS, state.fight_count + get_exercise_recover_amount())
         state.next_recover_time = _advance_recover_boundary(state.next_recover_time)
 
     # Daily "New Opponents" refresh count reset.
     key = region_day_key(now)
     if state.last_refresh_day != key:
-        state.refreshes_today = EXERCISE_REFRESHES_PER_DAY
+        from src.config.game_variables import get_exercise_refreshes_per_day
+        state.refreshes_today = get_exercise_refreshes_per_day()
         state.last_refresh_day = key
 
     return state
@@ -171,22 +175,18 @@ def recompute_state(state: ExerciseState, now: Optional[datetime] = None) -> Exe
 
 def _advance_recover_boundary(ts: int) -> int:
     dt = datetime.fromtimestamp(ts, tz=timezone.utc).astimezone(_current_region_location())
-    for _ in range(4):
-        if dt.hour < 12:
-            nxt = dt.replace(hour=12, minute=0, second=0, microsecond=0)
-        elif dt.hour < 18:
-            nxt = dt.replace(hour=18, minute=0, second=0, microsecond=0)
-        else:
-            nxt = (dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
-        if nxt > dt:
-            return int(nxt.astimezone(timezone.utc).timestamp())
-        dt = nxt
-    return ts + 12 * 3600
+    for hour in RECOVERY_HOURS:
+        cand = dt.replace(hour=hour, minute=0, second=0, microsecond=0)
+        if cand > dt:
+            return int(cand.astimezone(timezone.utc).timestamp())
+    nxt = (dt + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return int(nxt.astimezone(timezone.utc).timestamp())
 
 
 def ensure_exercise_state(commander_id: int, now: Optional[datetime] = None) -> ExerciseState:
     state = get_exercise_state_sync(commander_id)
     if state is None:
+        from src.config.game_variables import get_exercise_refreshes_per_day
         state = ExerciseState(
             commander_id=commander_id,
             season_id=1,
@@ -195,7 +195,7 @@ def ensure_exercise_state(commander_id: int, now: Optional[datetime] = None) -> 
             merit=0,
             fight_count=EXERCISE_MAX_ATTEMPTS,
             next_recover_time=0,
-            refreshes_today=EXERCISE_REFRESHES_PER_DAY,
+            refreshes_today=get_exercise_refreshes_per_day(),
             last_refresh_day=0,
             rewarded_rank=0,
         )
@@ -213,10 +213,46 @@ def ensure_exercise_state(commander_id: int, now: Optional[datetime] = None) -> 
 # template_id >= 900000 ships are shadow/enemy-only copies ("Denver", "Tartu",
 # the "Hero" placeholder, per-stage enemy reskins) used as enemies in levels;
 # a player can never own them, so they are excluded from NPC rival fleets.
-_NPC_SHIP_POOLS = None
+@dataclass(frozen=True)
+class NpcShipGroup:
+    group_id: int               # template_id // 10
+    english_name: str
+    templates: tuple[int, ...]  # sorted tuple of template_ids
+
+    def __ge__(self, other: int) -> bool:
+        return any(t >= other for t in self.templates)
+
+    def __lt__(self, other: int) -> bool:
+        return all(t < other for t in self.templates)
 
 
-def _npc_ship_pools() -> tuple:
+STAGE_MIN_LEVEL = {
+    1: 1,
+    2: 10,
+    3: 30,
+    4: 70,
+}
+
+
+def _best_ship_template_id(templates: tuple[int, ...] | list[int], level: int) -> int:
+    """Pick the highest-star ship template id available for the given level.
+
+    Stage requirements based on the last digit of template_id:
+      Stage 1 (*..): any level (level >= 1)
+      Stage 2 (**..): level >= 10
+      Stage 3 (***..): level >= 30
+      Stage 4 (****..): level >= 70
+    """
+    valid = [tid for tid in templates if STAGE_MIN_LEVEL.get(tid % 10, 1) <= level]
+    if valid:
+        return max(valid, key=lambda tid: tid % 10)
+    return min(templates, key=lambda tid: tid % 10)
+
+
+_NPC_SHIP_POOLS: Optional[tuple[list[NpcShipGroup], list[NpcShipGroup]]] = None
+
+
+def _npc_ship_pools() -> tuple[list[NpcShipGroup], list[NpcShipGroup]]:
     global _NPC_SHIP_POOLS
     if _NPC_SHIP_POOLS is not None:
         return _NPC_SHIP_POOLS
@@ -224,27 +260,97 @@ def _npc_ship_pools() -> tuple:
     store = Store()
     allowed = ",".join(str(t) for t in (VANGUARD_SHIP_TYPES | MAIN_SHIP_TYPES))
     rows = store.fetch(
-        "SELECT s.template_id, (c.data->>'type')::int AS stype "
-        "FROM ships s JOIN config_entries c ON c.category = "
-        "'sharecfgdata/ship_data_template.json' AND c.key = s.template_id::text "
-        "WHERE (c.data->>'type')::int IN (%s) AND s.template_id < 900000" % allowed
+        "SELECT s.template_id, s.type, s.english_name "
+        "FROM ships s "
+        "WHERE s.type IN (%s) AND s.template_id < 900000 "
+        "ORDER BY s.template_id" % allowed
     )
-    vanguard, main = [], []
+    groups: dict[int, dict] = {}
     for r in rows:
-        tid, stype = int(r[0]), int(r[1])
-        if stype in VANGUARD_SHIP_TYPES:
-            vanguard.append(tid)
-        elif stype in MAIN_SHIP_TYPES:
-            main.append(tid)
+        tid, stype, ename = int(r[0]), int(r[1]), str(r[2] or "")
+        gid = tid // 10
+        if gid not in groups:
+            groups[gid] = {
+                "group_id": gid,
+                "english_name": ename,
+                "stype": stype,
+                "templates": [],
+            }
+        groups[gid]["templates"].append(tid)
+
+    vanguard: list[NpcShipGroup] = []
+    main: list[NpcShipGroup] = []
+    for g in groups.values():
+        item = NpcShipGroup(
+            group_id=g["group_id"],
+            english_name=g["english_name"],
+            templates=tuple(sorted(g["templates"])),
+        )
+        if g["stype"] in VANGUARD_SHIP_TYPES:
+            vanguard.append(item)
+        elif g["stype"] in MAIN_SHIP_TYPES:
+            main.append(item)
+
     _NPC_SHIP_POOLS = (vanguard, main)
     return _NPC_SHIP_POOLS
 
 
-def _sample_team(rng: random.Random, pool: list, n: int) -> list:
-    """Pick n distinct ship template ids from a team pool (with fallback)."""
-    if len(pool) >= n:
-        return rng.sample(pool, n)
-    return [rng.choice(pool) for _ in range(n)]
+def _sample_team(
+    rng: random.Random,
+    pool: list[NpcShipGroup],
+    n: int,
+    used_groups: set[int],
+    used_names: set[str],
+    base_level: float,
+) -> list[tuple[int, int]]:
+    """Pick n distinct (template_id, ship_level) pairs from a team pool.
+
+    Ensures no collisions with already used ship groups (template_id // 10)
+    or english_names across the entire rival fleet.
+    Each ship's level is determined by _npc_ship_level(rng, base_level),
+    and the ship's template is selected as the maximum available star stage
+    for that level. Groups with no valid stage for the generated level
+    (e.g. standalone retrofit stages requiring level 70+) are skipped.
+    """
+    selected: list[tuple[int, int]] = []
+    if not pool:
+        return selected
+
+    candidates = rng.sample(pool, len(pool))
+    for group in candidates:
+        if group.group_id in used_groups:
+            continue
+        if group.english_name and group.english_name in used_names:
+            continue
+        lvl = _npc_ship_level(rng, base_level)
+        valid = [tid for tid in group.templates if STAGE_MIN_LEVEL.get(tid % 10, 1) <= lvl]
+        if not valid:
+            continue
+        sid = max(valid, key=lambda tid: tid % 10)
+        selected.append((sid, lvl))
+        used_groups.add(group.group_id)
+        if group.english_name:
+            used_names.add(group.english_name)
+        if len(selected) == n:
+            break
+
+    # Fallback if pool had fewer non-colliding options than n
+    if len(selected) < n:
+        for group in candidates:
+            if group.group_id not in used_groups:
+                lvl = _npc_ship_level(rng, base_level)
+                sid = _best_ship_template_id(group.templates, lvl)
+                selected.append((sid, lvl))
+                used_groups.add(group.group_id)
+                if len(selected) == n:
+                    break
+    while len(selected) < n:
+        group = rng.choice(pool)
+        lvl = _npc_ship_level(rng, base_level)
+        sid = _best_ship_template_id(group.templates, lvl)
+        selected.append((sid, lvl))
+
+    return selected
 
 
 def _player_top6_avg_level(commander_id: int) -> float:
@@ -261,18 +367,171 @@ def _player_top6_avg_level(commander_id: int) -> float:
     )
     levels = [int(r[0]) for r in rows] if rows else []
     if not levels:
-        return float(EXERCISE_RIVAL_LEVEL)
+        from src.config.game_variables import get_exercise_rival_fallback_level
+        return float(get_exercise_rival_fallback_level())
     return sum(levels) / len(levels)
 
 
 def _npc_ship_level(rng: random.Random, base: float) -> int:
-    """NPC ship level = player top-6 average +/- 10% (deterministic)."""
-    return max(1, int(round(base * rng.uniform(0.9, 1.1))))
+    """NPC ship level = player top-6 average scaled by configured min/max range."""
+    from src.config.game_variables import get_exercise_bot_level_range
+
+    low, high = get_exercise_bot_level_range()
+    return max(1, int(round(base * rng.uniform(low, high))))
 
 
-def build_npc_shipinfo(template_id: int, level: int = 125) -> protobuf.SHIPINFO:
+@dataclass(frozen=True)
+class BaseEquipmentChain:
+    base_id: int
+    type: int
+    ship_type_forbidden: frozenset[int]
+    equip_limit: int
+    chain: tuple[int, ...]
+
+
+_EQUIPMENT_CHAINS: Optional[list[BaseEquipmentChain]] = None
+
+
+def _equipment_chains() -> list[BaseEquipmentChain]:
+    global _EQUIPMENT_CHAINS
+    if _EQUIPMENT_CHAINS is not None:
+        return _EQUIPMENT_CHAINS
+    from src.db.store import Store
+    store = Store()
+    rows = store.fetch(
+        "SELECT id, base, type, level, ship_type_forbidden, equip_limit "
+        "FROM equipments ORDER BY level, id"
+    )
+    bases: dict[int, dict] = {}
+    mods: dict[int, list[tuple[int, int]]] = {}
+    for r in rows:
+        eid = int(r[0])
+        base = int(r[1]) if r[1] is not None else None
+        etype = int(r[2] or 0)
+        level = int(r[3] or 0)
+        forbidden_raw = r[4]
+        limit = int(r[5] or 0)
+        if base is None:
+            forbidden = set()
+            if forbidden_raw:
+                try:
+                    val = json.loads(forbidden_raw) if isinstance(forbidden_raw, str) else forbidden_raw
+                    if isinstance(val, (list, tuple)):
+                        forbidden = {int(x) for x in val}
+                except Exception:
+                    pass
+            bases[eid] = {
+                "base_id": eid,
+                "type": etype,
+                "ship_type_forbidden": frozenset(forbidden),
+                "equip_limit": limit,
+                "chain": [eid],
+            }
+        else:
+            mods.setdefault(base, []).append((level, eid))
+
+    for base_id, mod_list in mods.items():
+        if base_id in bases:
+            mod_list.sort(key=lambda x: (x[0], x[1]))
+            bases[base_id]["chain"].extend([m[1] for m in mod_list])
+
+    _EQUIPMENT_CHAINS = [
+        BaseEquipmentChain(
+            base_id=b["base_id"],
+            type=b["type"],
+            ship_type_forbidden=b["ship_type_forbidden"],
+            equip_limit=b["equip_limit"],
+            chain=tuple(b["chain"]),
+        )
+        for b in bases.values()
+    ]
+    return _EQUIPMENT_CHAINS
+
+
+def _scale_equipment(chain: tuple[int, ...] | list[int], level: int) -> int:
+    """Scale equipment from base (chain[0]) to max modification (chain[-1]) based on ship level (1-125).
+
+    Example for chain [500..513] (len 14):
+      level 1 -> 500 (base)
+      level 100 -> 510 (+10 modification)
+      level 125 -> 513 (max modification)
+    """
+    if not chain:
+        return 0
+    if len(chain) == 1 or level <= 1:
+        return chain[0]
+    ratio = max(0.0, min(1.0, level / 125.0))
+    idx = int(round(ratio * (len(chain) - 1)))
+    idx = max(0, min(idx, len(chain) - 1))
+    return chain[idx]
+
+
+def _generate_npc_ship_equip_overrides(
+    template_id: int,
+    level: int,
+    rng: Optional[random.Random] = None,
+) -> dict[int, tuple[int, int]]:
+    """Select suitable equipment for each ship slot and scale it according to ship level.
+
+    Slot matching rules:
+      1. Equipment type must be in the slot's allowed types (cfg[f"equip_{pos}"]).
+      2. Ship type must not be in the equipment's ship_type_forbidden.
+      3. Base equipment is not duplicated across slots, and equip_limit is respected.
+      4. Equipment is scaled along its modification chain based on ship level.
+    """
     cfg = get_ship_template_config(template_id)
-    max_level = (cfg or {}).get("level", 125) or 125
+    if not cfg:
+        return {pos: (0, 0) for pos in range(1, 6)}
+
+    ship_type = int(cfg.get("type", 0) or 0)
+    all_chains = _equipment_chains()
+
+    used_bases: set[int] = set()
+    used_limits: set[int] = set()
+    equip_overrides: dict[int, tuple[int, int]] = {}
+
+    for pos in range(1, 6):
+        allowed = cfg.get(f"equip_{pos}")
+        if not allowed or not isinstance(allowed, (list, tuple)):
+            equip_overrides[pos] = (0, 0)
+            continue
+        allowed_set = set(allowed)
+
+        # Candidates matching slot types, not forbidden for ship type, not already used
+        candidates = [
+            b for b in all_chains
+            if b.type in allowed_set
+            and ship_type not in b.ship_type_forbidden
+            and b.base_id not in used_bases
+            and (b.equip_limit == 0 or b.equip_limit not in used_limits)
+        ]
+
+        # Fallback if all distinct bases were used (e.g. repeated auxiliary slots)
+        if not candidates:
+            candidates = [
+                b for b in all_chains
+                if b.type in allowed_set
+                and ship_type not in b.ship_type_forbidden
+            ]
+
+        if candidates:
+            chosen = rng.choice(candidates) if rng is not None else candidates[0]
+            used_bases.add(chosen.base_id)
+            if chosen.equip_limit > 0:
+                used_limits.add(chosen.equip_limit)
+            equip_id = _scale_equipment(chosen.chain, level)
+            equip_overrides[pos] = (equip_id, 0)
+        else:
+            equip_overrides[pos] = (0, 0)
+
+    return equip_overrides
+
+
+def build_npc_shipinfo(
+    template_id: int, level: int = 125, rng: Optional[random.Random] = None
+) -> protobuf.SHIPINFO:
+    cfg = get_ship_template_config(template_id)
+    max_level = (cfg or {}).get("max_level") or (cfg or {}).get("level") or 125
     # Keep NPC ship levels valid: never above the ship's natural max level.
     level = max(1, min(int(level), max_level))
     row = (
@@ -295,12 +554,7 @@ def build_npc_shipinfo(template_id: int, level: int = 125) -> protobuf.SHIPINFO:
         0, 0, 0, 0,    # state_info 1-4
         0,             # proficiency
     )
-    equip = (cfg or {}).get("equip")
-    slot_count = len(equip) if isinstance(equip, list) and equip else 3
-    equip_overrides = {
-        i + 1: (equip[i] if isinstance(equip, list) and i < len(equip) and equip[i] else 0, 0)
-        for i in range(slot_count)
-    }
+    equip_overrides = _generate_npc_ship_equip_overrides(template_id, level, rng)
     # SHIPINFO building lives in ONE place (src/answer/shipinfo/builder.py);
     # NPC rival ships differ only in their synthetic default equip slots
     # (passed via equip_overrides, since NPC ships have no DB equipment).
@@ -342,9 +596,18 @@ def build_exercise_rival_target_list(
     vanguard_pool, main_pool = _npc_ship_pools()
     # Fallback if the ship pools are unavailable (e.g. config not loaded).
     if not vanguard_pool or not main_pool:
-        fallback = [101171, 102061, 103061, 104011, 105011, 106011]
-        vanguard_pool = list(fallback)
-        main_pool = list(fallback)
+        fallback_v = [
+            NpcShipGroup(group_id=10117, english_name="USS Brooklyn", templates=(101171,)),
+            NpcShipGroup(group_id=10206, english_name="USS Atlanta", templates=(102061,)),
+            NpcShipGroup(group_id=10306, english_name="USS Portland", templates=(103061,)),
+        ]
+        fallback_m = [
+            NpcShipGroup(group_id=10401, english_name="USS Nevada", templates=(104011,)),
+            NpcShipGroup(group_id=10501, english_name="USS Pennsylvania", templates=(105011,)),
+            NpcShipGroup(group_id=10601, english_name="USS Long Island", templates=(106011,)),
+        ]
+        vanguard_pool = list(fallback_v)
+        main_pool = list(fallback_m)
     rank = tier_index_for_score(state.score)
     # NPC ship level base: average level of the player's 6 highest-level ships,
     # each rival ship then gets base +/- 10% (see _npc_ship_level).
@@ -360,15 +623,16 @@ def build_exercise_rival_target_list(
         t.rank = rank
         # Exactly 3 vanguard-type + 3 main-type ships, placed in fixed
         # formation slots (vanguard[0..2] -> front row, main[0..2] -> back row).
-        # The client re-sorts each ship by its team type, so the lists only
-        # need the right composition; sampling without replacement avoids
-        # duplicate ships within a rival and keeps the formation full.
-        vanguard = _sample_team(rng, vanguard_pool, 3)
-        main = _sample_team(rng, main_pool, 3)
-        for sid in vanguard:
-            t.vanguard_ship_list.append(build_npc_shipinfo(sid, _npc_ship_level(rng, base_level)))
-        for sid in main:
-            t.main_ship_list.append(build_npc_shipinfo(sid, _npc_ship_level(rng, base_level)))
+        # Avoid duplicate ships across the whole rival fleet (vanguard + main)
+        # by checking both group_id (template_id // 10) and english_name.
+        used_groups: set[int] = set()
+        used_names: set[str] = set()
+        vanguard = _sample_team(rng, vanguard_pool, 3, used_groups, used_names, base_level)
+        main = _sample_team(rng, main_pool, 3, used_groups, used_names, base_level)
+        for sid, lvl in vanguard:
+            t.vanguard_ship_list.append(build_npc_shipinfo(sid, lvl, rng=rng))
+        for sid, lvl in main:
+            t.main_ship_list.append(build_npc_shipinfo(sid, lvl, rng=rng))
         t.display.CopyFrom(empty_display())
         # The client (PlayerAttire.Flush) derives the rival portrait from
         # TARGETINFO.icon, which the EN TARGETINFO proto does NOT carry, so it
@@ -376,7 +640,11 @@ def build_exercise_rival_target_list(
         # MilitaryExerciseScene updateRival -> updateDrop(DROP_TYPE_SHIP, id=nil)
         # crashes ("attempt to index a nil value" in Drop:InitConfig). Use the
         # first main-fleet ship as the portrait icon.
-        icon_ship = (main or vanguard or [0])[0]
+        icon_ship = (
+            t.main_ship_list[0].template_id
+            if t.main_ship_list
+            else (t.vanguard_ship_list[0].template_id if t.vanguard_ship_list else 0)
+        )
         t.display.icon = int(icon_ship or 0)
         targets.append(t)
     return targets
