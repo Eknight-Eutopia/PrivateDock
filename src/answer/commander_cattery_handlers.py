@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import Optional
 
 from src.connection.client import Client
@@ -9,6 +10,10 @@ COMMANDER_RESULT_OK = 0
 COMMANDER_RESULT_ERROR = 1
 
 COMMANDER_CATTERY_ALL_OPS = 1 | 2 | 4
+
+OP_CLEAN = 1
+OP_FEED = 2
+OP_PLAY = 3
 
 
 def handle_commander_cattery_operation(
@@ -21,44 +26,37 @@ def handle_commander_cattery_operation(
     response = protobuf.SC_25029(result=COMMANDER_RESULT_ERROR, level=0, exp=0, op_time=0)
 
     try:
-        from src.orm import (
-            CommanderCatteryOpBit as _opbit,
-            CommanderCatteryOpFeed as _opfeed,
-            CommanderCatteryOpClean as _opclean,
-        )
-        from src.orm.commander_home import ensure_commander_home, update_commander_home_slot, get_commander_home_feed_exp, update_commander_home
-        from src.orm import commander_has_cattery_op_flag, commander_clear_cattery_op_flag
-        op_bit = _opbit(op_type)
-        if op_bit == 0:
+        if op_type not in (OP_CLEAN, OP_FEED, OP_PLAY):
             asyncio.create_task(client.send_message(25029, response))
             return 0, 25029, None
 
-        home, slots = ensure_commander_home(client.commander.commander_id)
-        if isinstance(home, dict):
-            response.level = home.get("level", 0)
-            response.exp = home.get("exp", 0)
-        else:
-            response.level = getattr(home, "level", 0)
-            response.exp = getattr(home, "exp", 0)
+        from src.orm.commander_home import (
+            ensure_commander_home,
+            update_commander_home_slot,
+            update_commander_home,
+            add_commander_home_exp,
+            get_commander_home_clean_exp,
+            get_commander_home_feed_exp,
+            get_commander_home_feed_home_exp,
+            get_commander_home_play_home_exp,
+        )
+        from src.orm import commander_has_cattery_op_flag, commander_clear_cattery_op_flag
 
-        now = int(asyncio.get_event_loop().time())
+        home, slots = ensure_commander_home(client.commander.commander_id)
+        current_level = home.get("level", 1) if isinstance(home, dict) else getattr(home, "level", 1)
+
+        now = int(time.time())
 
         eligible = []
         for slot in slots:
-            if isinstance(slot, dict):
-                if slot.get("assigned_commander_id", 0) == 0:
-                    continue
-                if not commander_has_cattery_op_flag(slot.get("op_flag", 0), op_type):
-                    continue
-                if not _commander_supports_operation(slot.get("assigned_commander_id", 0), op_type):
-                    continue
-            else:
-                if getattr(slot, "assigned_commander_id", 0) == 0:
-                    continue
-                if not commander_has_cattery_op_flag(getattr(slot, "op_flag", 0), op_type):
-                    continue
-                if not _commander_supports_operation(getattr(slot, "assigned_commander_id", 0), op_type):
-                    continue
+            assigned_id = slot.get("assigned_commander_id", 0) if isinstance(slot, dict) else getattr(slot, "assigned_commander_id", 0)
+            op_flag = slot.get("op_flag", 0) if isinstance(slot, dict) else getattr(slot, "op_flag", 0)
+            if assigned_id == 0:
+                continue
+            if not commander_has_cattery_op_flag(op_flag, op_type):
+                continue
+            if not _commander_supports_operation(assigned_id, op_type):
+                continue
             eligible.append(slot)
 
         if not eligible:
@@ -67,41 +65,96 @@ def handle_commander_cattery_operation(
 
         for slot in eligible:
             if isinstance(slot, dict):
+                slot["commander_id"] = client.commander.commander_id
                 slot["op_flag"] = commander_clear_cattery_op_flag(slot.get("op_flag", 0), op_type)
                 slot["exp_time"] = now
                 slot["cache_exp"] = 0
             else:
+                slot.commander_id = client.commander.commander_id
                 slot.op_flag = commander_clear_cattery_op_flag(getattr(slot, "op_flag", 0), op_type)
                 slot.exp_time = now
                 slot.cache_exp = 0
             update_commander_home_slot(slot)
 
-            if op_type == _opfeed:
-                assigned_id = slot.get("assigned_commander_id", 0) if isinstance(slot, dict) else getattr(slot, "assigned_commander_id", 0)
-                ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
-                assigned = ships_map.get(assigned_id)
-                if assigned:
-                    feed_exp = get_commander_home_feed_exp(response.level)
-                    if feed_exp > 0:
-                        _apply_owned_ship_commander_exp(assigned, feed_exp)
+        home_exp_gain = 0
 
-        if op_type == _opclean:
+        if op_type == OP_CLEAN:
             if isinstance(home, dict):
+                home["commander_id"] = client.commander.commander_id
                 home["clean"] = home.get("clean", 0) + 1
             else:
+                home.commander_id = client.commander.commander_id
                 home.clean = getattr(home, "clean", 0) + 1
             update_commander_home(home)
-            if isinstance(home, dict):
-                response.level = home.get("level", 0)
-                response.exp = home.get("exp", 0)
-            else:
-                response.level = getattr(home, "level", 0)
-                response.exp = getattr(home, "exp", 0)
+            home_exp_gain = get_commander_home_clean_exp(current_level)
 
+        elif op_type == OP_FEED:
+            feed_exp = get_commander_home_feed_exp(current_level)
+            home_exp_per_cat = get_commander_home_feed_home_exp(current_level)
+            home_exp_gain = len(eligible) * home_exp_per_cat
+
+            from src.orm.commander_meow import (
+                get_commander_meow,
+                get_commander_template,
+                add_commander_exp,
+                update_commander_meow_level_exp,
+            )
+            for slot in eligible:
+                assigned_id = slot.get("assigned_commander_id", 0) if isinstance(slot, dict) else getattr(slot, "assigned_commander_id", 0)
+                if assigned_id != 0:
+                    meow = get_commander_meow(client.commander.commander_id, assigned_id)
+                    if meow:
+                        meow_tid = getattr(meow, "template_id", 0) if not isinstance(meow, dict) else meow.get("template_id", 0)
+                        tpl = get_commander_template(meow_tid)
+                        rarity = tpl.get("rarity", 3) if tpl else 3
+                        max_level = tpl.get("max_level", 30) if tpl else 30
+                        cur_level = getattr(meow, "level", 1) if not isinstance(meow, dict) else meow.get("level", 1)
+                        cur_exp = getattr(meow, "exp", 0) if not isinstance(meow, dict) else meow.get("exp", 0)
+                        new_lv, new_exp = add_commander_exp(cur_level, cur_exp, feed_exp, rarity, max_level)
+                        update_commander_meow_level_exp(client.commander.commander_id, assigned_id, new_lv, new_exp)
+                    else:
+                        ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
+                        assigned = ships_map.get(assigned_id)
+                        if assigned:
+                            _apply_owned_ship_commander_exp(assigned, feed_exp)
+
+        elif op_type == OP_PLAY:
+            play_home_exp_per_cat = get_commander_home_play_home_exp(current_level)
+            home_exp_gain = len(eligible) * play_home_exp_per_cat
+
+            dorm_money_count = len(eligible)
+            item_count = len(eligible)
+
+            if hasattr(client.commander, "add_resource"):
+                client.commander.add_resource(6, dorm_money_count)
+            else:
+                from src.orm.resource import add_resource
+                add_resource(client.commander.commander_id, 6, dorm_money_count)
+
+            if hasattr(client.commander, "add_item"):
+                client.commander.add_item(20010, item_count)
+            else:
+                from src.orm import add_item
+                add_item(client.commander, 20010, item_count)
+
+            award1 = response.awards.add()
+            award1.type = 1
+            award1.id = 6
+            award1.number = dorm_money_count
+
+            award2 = response.awards.add()
+            award2.type = 2
+            award2.id = 20010
+            award2.number = item_count
+
+        new_level, new_exp = add_commander_home_exp(client.commander.commander_id, home_exp_gain)
+        response.level = new_level
+        response.exp = new_exp
         response.result = COMMANDER_RESULT_OK
         response.op_time = now
-    except (ImportError, AttributeError):
-        pass
+    except Exception as e:
+        from src.logger.logger import log_event, LOG_LEVEL_ERROR
+        log_event(LOG_LEVEL_ERROR, "commander_cattery_op_failed", {"op_type": op_type, "error": str(e)})
 
     asyncio.create_task(client.send_message(25029, response))
     return 0, 25029, None
@@ -116,9 +169,6 @@ def handle_commander_cattery_assign(
     response = protobuf.SC_25031(result=COMMANDER_RESULT_ERROR, time=0, commander_level=0, commander_exp=0)
 
     try:
-        from src.orm import (
-            CommanderCatteryOpBit as _opbit,
-        )
         from src.orm.commander_home import ensure_commander_home, update_commander_home_slot
 
         home, slots = ensure_commander_home(client.commander.commander_id)
@@ -129,7 +179,7 @@ def handle_commander_cattery_assign(
             return 0, 25031, None
 
         slot = slots[slot_index - 1]
-        now = int(asyncio.get_event_loop().time())
+        now = int(time.time())
 
         if isinstance(slot, dict):
             assigned_id = slot.get("assigned_commander_id", 0)
@@ -137,15 +187,21 @@ def handle_commander_cattery_assign(
             assigned_id = getattr(slot, "assigned_commander_id", 0)
 
         if assigned_id != 0:
-            ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
-            assigned = ships_map.get(assigned_id)
-            if assigned:
-                if isinstance(assigned, dict):
-                    response.commander_level = assigned.get("level", 0)
-                    response.commander_exp = assigned.get("exp", 0)
-                else:
-                    response.commander_level = getattr(assigned, "level", 0)
-                    response.commander_exp = getattr(assigned, "exp", 0)
+            from src.orm.commander_meow import get_commander_meow
+            meow = get_commander_meow(client.commander.commander_id, assigned_id)
+            if meow:
+                response.commander_level = meow.level
+                response.commander_exp = meow.exp
+            else:
+                ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
+                assigned = ships_map.get(assigned_id)
+                if assigned:
+                    if isinstance(assigned, dict):
+                        response.commander_level = assigned.get("level", 0)
+                        response.commander_exp = assigned.get("exp", 0)
+                    else:
+                        response.commander_level = getattr(assigned, "level", 0)
+                        response.commander_exp = getattr(assigned, "exp", 0)
 
         new_commander_id = payload.commander_id
 
@@ -154,9 +210,11 @@ def handle_commander_cattery_assign(
                 asyncio.create_task(client.send_message(25031, response))
                 return 0, 25031, None
             if isinstance(slot, dict):
+                slot["commander_id"] = client.commander.commander_id
                 slot["assigned_commander_id"] = 0
                 slot["exp_time"] = now
             else:
+                slot.commander_id = client.commander.commander_id
                 slot.assigned_commander_id = 0
                 slot.exp_time = now
             update_commander_home_slot(slot)
@@ -165,10 +223,13 @@ def handle_commander_cattery_assign(
             asyncio.create_task(client.send_message(25031, response))
             return 0, 25031, None
 
-        ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
-        if new_commander_id not in ships_map:
-            asyncio.create_task(client.send_message(25031, response))
-            return 0, 25031, None
+        from src.orm.commander_meow import get_commander_meow
+        meow = get_commander_meow(client.commander.commander_id, new_commander_id)
+        if not meow:
+            ships_map = getattr(client.commander, "ships_map", {}) or getattr(client.commander, "owned_ships_map", {})
+            if new_commander_id not in ships_map:
+                asyncio.create_task(client.send_message(25031, response))
+                return 0, 25031, None
 
         for s in slots:
             target_id = s.get("assigned_commander_id", 0) if isinstance(s, dict) else getattr(s, "assigned_commander_id", 0)
@@ -279,6 +340,8 @@ def handle_commander_cattery_scene_state(
         else:
             return 0, 0, None
 
+        if isinstance(home, dict):
+            home["commander_id"] = client.commander.commander_id
         update_commander_home(home)
     except (ImportError, AttributeError):
         pass
@@ -295,22 +358,22 @@ def handle_commander_boxes_refresh(
     response = protobuf.SC_25035()
 
     try:
-        from src.orm.commander_box import ensure_commander_boxes, to_proto_commander_box
+        from src.orm.commander_box import ensure_commander_boxes
         boxes = ensure_commander_boxes(client.commander.commander_id)
         for box in boxes:
             box_entry = protobuf.COMMANDERBOXINFO()
             if isinstance(box, dict):
-                box_entry.id = box.get("id", 0)
+                box_entry.id = box.get("box_id", box.get("id", 0))
                 box_entry.poolId = box.get("pool_id", 0)
                 box_entry.finish_time = box.get("finish_time", 0)
                 box_entry.begin_time = box.get("begin_time", 0)
             else:
-                box_entry.id = box.id
-                box_entry.poolId = box.pool_id
-                box_entry.finish_time = box.finish_time
-                box_entry.begin_time = box.begin_time
+                box_entry.id = getattr(box, "box_id", getattr(box, "id", 0))
+                box_entry.poolId = getattr(box, "pool_id", 0)
+                box_entry.finish_time = getattr(box, "finish_time", 0)
+                box_entry.begin_time = getattr(box, "begin_time", 0)
             response.box_list.append(box_entry)
-    except (ImportError, AttributeError):
+    except Exception:
         pass
 
     asyncio.create_task(client.send_message(25035, response))

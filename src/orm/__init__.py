@@ -228,6 +228,11 @@ from src.orm.commander_meow import (
     update_fleet_meowfficer_slot,
     CommanderCatteryOpBit,
 )
+from src.orm.commander_box_daily import (
+    get_commander_box_daily_usage,
+    increment_commander_box_daily_usage,
+    reset_commander_box_daily_usage,
+)
 from src.orm.commander_home import (
     ensure_commander_home,
     update_commander_home,
@@ -235,6 +240,7 @@ from src.orm.commander_home import (
     get_commander_home_style_list,
     get_commander_home_feed_exp,
     clear_commander_home_cache_exp,
+    add_commander_home_exp,
 )
 from src.orm.commander_packet import (
     get_or_create_commander_packet_state,
@@ -515,8 +521,16 @@ from src.orm.medal_shop import (
 from src.orm import authz_store
 
 
-def commander_has_cattery_op_flag(_commander_id: int, _flag: int) -> bool:
+def commander_has_cattery_op_flag(flag: int, op_type: int) -> bool:
+    if op_type in (1, 2, 3):
+        return bool(flag & (1 << (op_type - 1)))
     return False
+
+
+def commander_clear_cattery_op_flag(flag: int, op_type: int) -> int:
+    if op_type in (1, 2, 3):
+        return flag & ~(1 << (op_type - 1))
+    return flag
 
 
 from src.orm.commander import (

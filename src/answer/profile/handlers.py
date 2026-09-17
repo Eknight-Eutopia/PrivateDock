@@ -33,11 +33,17 @@ def handle_get_commander_home(buffer: bytes, client: Client) -> tuple[int, int, 
         proto_slot.style = slot["style"]
         proto_slot.cache_exp = slot["cache_exp"]
         if slot["assigned_commander_id"] != 0:
-            owned = getattr(client.commander, "owned_ships_map", {}) or {}
-            assigned = owned.get(slot["assigned_commander_id"])
-            if assigned is not None:
-                proto_slot.commander_level = assigned.level
-                proto_slot.commander_exp = assigned.exp
+            from src.orm.commander_meow import get_commander_meow
+            meow = get_commander_meow(client.commander.commander_id, slot["assigned_commander_id"])
+            if meow is not None:
+                proto_slot.commander_level = meow.level
+                proto_slot.commander_exp = meow.exp
+            else:
+                owned = getattr(client.commander, "owned_ships_map", {}) or {}
+                assigned = owned.get(slot["assigned_commander_id"])
+                if assigned is not None:
+                    proto_slot.commander_level = assigned.level
+                    proto_slot.commander_exp = assigned.exp
         protobuf_slots.append(proto_slot)
 
     response = protobuf.SC_25027()

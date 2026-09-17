@@ -74,7 +74,14 @@ def handle_set_commander_lock_state(
     payload = protobuf.CS_25016()
     payload.ParseFromString(buffer)
 
-    asyncio.create_task(client.send_message(25017, protobuf.SC_25017(result=COMMANDER_RESULT_FAIL)))
+    from src.orm.commander_meow import update_commander_meow_lock
+    try:
+        update_commander_meow_lock(client.commander.commander_id, payload.commanderid, payload.flag)
+        res = COMMANDER_RESULT_OK
+    except Exception:
+        res = COMMANDER_RESULT_FAIL
+
+    asyncio.create_task(client.send_message(25017, protobuf.SC_25017(result=res)))
     return 0, 25017, None
 
 
@@ -84,7 +91,16 @@ def handle_rename_commander(
     payload = protobuf.CS_25020()
     payload.ParseFromString(buffer)
 
-    asyncio.create_task(client.send_message(25021, protobuf.SC_25021(result=COMMANDER_RESULT_FAIL)))
+    import time
+    from src.orm.commander_meow import update_commander_meow_name
+    try:
+        now = int(time.time())
+        update_commander_meow_name(client.commander.commander_id, payload.commanderid, payload.name, now)
+        res = COMMANDER_RESULT_OK
+    except Exception:
+        res = COMMANDER_RESULT_FAIL
+
+    asyncio.create_task(client.send_message(25021, protobuf.SC_25021(result=res)))
     return 0, 25021, None
 
 
@@ -94,7 +110,58 @@ def handle_set_commander_prefab_fleet(
     payload = protobuf.CS_25022()
     payload.ParseFromString(buffer)
 
-    asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+    prefab_id = payload.id
+    if not _is_valid_prefab_id(prefab_id):
+        asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+        return 0, 25023, None
+
+    input_slots = payload.commandersid
+    if not input_slots:
+        asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+        return 0, 25023, None
+
+    from src.orm.commander_meow import get_commander_meow
+    from src.orm.commander_prefab import save_commander_prefab_fleet
+
+    slots_by_pos = {}
+    non_zero_count = 0
+    for slot in input_slots:
+        pos = slot.pos
+        if pos == 0 or pos > COMMANDER_PREFAB_MAX_SLOTS:
+            asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+            return 0, 25023, None
+        if pos in slots_by_pos:
+            asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+            return 0, 25023, None
+
+        cid = slot.id
+        if cid != 0:
+            meow = get_commander_meow(client.commander.commander_id, cid)
+            if meow is None:
+                asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+                return 0, 25023, None
+            non_zero_count += 1
+        slots_by_pos[pos] = cid
+
+    if non_zero_count == 0:
+        asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=COMMANDER_RESULT_FAIL)))
+        return 0, 25023, None
+
+    sorted_slots = [
+        {"pos": pos, "id": slots_by_pos[pos]}
+        for pos in sorted(slots_by_pos.keys())
+    ]
+    try:
+        save_commander_prefab_fleet(
+            client.commander.commander_id,
+            prefab_id,
+            sorted_slots,
+        )
+        res = COMMANDER_RESULT_OK
+    except Exception:
+        res = COMMANDER_RESULT_FAIL
+
+    asyncio.create_task(client.send_message(25023, protobuf.SC_25023(result=res)))
     return 0, 25023, None
 
 
@@ -104,7 +171,33 @@ def handle_rename_commander_prefab_fleet(
     payload = protobuf.CS_25024()
     payload.ParseFromString(buffer)
 
-    asyncio.create_task(client.send_message(25025, protobuf.SC_25025(result=COMMANDER_RESULT_FAIL)))
+    prefab_id = payload.id
+    if not _is_valid_prefab_id(prefab_id):
+        asyncio.create_task(client.send_message(25025, protobuf.SC_25025(result=COMMANDER_RESULT_FAIL)))
+        return 0, 25025, None
+
+    from src.orm.commander_prefab import get_commander_prefab_fleet, rename_commander_prefab_fleet
+
+    prefab = get_commander_prefab_fleet(client.commander.commander_id, prefab_id)
+    current_name = prefab.get("name", "") if prefab else ""
+    name = str(payload.name).strip()
+
+    if not _is_valid_commander_name(name, current_name, COMMANDER_NAME_MAX_LENGTH):
+        asyncio.create_task(client.send_message(25025, protobuf.SC_25025(result=COMMANDER_RESULT_FAIL)))
+        return 0, 25025, None
+
+    try:
+        success = rename_commander_prefab_fleet(
+            client.commander.commander_id,
+            prefab_id,
+            name,
+            cooldown_seconds=60,
+        )
+        res = COMMANDER_RESULT_OK if success else COMMANDER_RESULT_FAIL
+    except Exception:
+        res = COMMANDER_RESULT_FAIL
+
+    asyncio.create_task(client.send_message(25025, protobuf.SC_25025(result=res)))
     return 0, 25025, None
 
 

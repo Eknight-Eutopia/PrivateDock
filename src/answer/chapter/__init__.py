@@ -36,6 +36,11 @@ from .handlers import (
     handle_get_chapter_drop_ship_list,
     handle_remove_elite_target_ship,
 )
+from .commander_strike import (
+    evaluate_commander_preemptive_strikes,
+    is_strike_target_cell,
+    check_skill_condition,
+)
 
 __all__ = [
     "CHAPTER_CHANCE_BASE",
@@ -72,4 +77,7 @@ __all__ = [
     "handle_chapter_battle_result",
     "handle_get_chapter_drop_ship_list",
     "handle_remove_elite_target_ship",
+    "evaluate_commander_preemptive_strikes",
+    "is_strike_target_cell",
+    "check_skill_condition",
 ]

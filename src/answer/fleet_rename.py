@@ -14,15 +14,15 @@ def handle_fleet_rename(
 
     fleet_id = payload.id
     name = payload.name
-    fleets_map = getattr(client.commander, "fleets_map", {}) or {}
 
-    fleet = fleets_map.get(fleet_id)
+    from src.orm.fleet import get_fleet_by_game_id, rename_fleet
+    fleet = get_fleet_by_game_id(client.commander.commander_id, fleet_id)
     if fleet is None:
         response.result = 1
     else:
-        from src.orm.fleet import rename_fleet
         try:
-            rename_fleet(fleet, name)
+            rename_fleet(fleet.id, name)
+            fleet.name = name
         except Exception:
             response.result = 2
 
