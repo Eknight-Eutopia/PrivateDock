@@ -14,7 +14,7 @@
     }
   ],
   "api": {
-    "enabled": false,
+    "enabled": true,
     "port": 2289,
     "environment": "development",
     "cors_origins": ["*"]
