@@ -298,7 +298,18 @@ def sqlite_path_from_dsn(dsn: str) -> str:
         if raw.lower().startswith(prefix):
             raw = raw[len(prefix):]
             break
-    return raw or "privatedock.sqlite"
+    if raw:
+        return raw
+    try:
+        from src.config.config import current as _cfg
+        cfg = _cfg()
+        if cfg.database.path:
+            return cfg.database.path
+        if cfg.database.dsn:
+            return sqlite_path_from_dsn(cfg.database.dsn)
+    except Exception:
+        pass
+    return "db/privatedock.db"
 
 
 class _SyncTx:
@@ -416,16 +427,20 @@ class Store:
         return self._sync_pool
 
     def _get_sqlite_conn(self) -> sqlite3.Connection:
-        """One SQLite connection per thread, autocommit, WAL."""
-        conn = getattr(_SQLITE_LOCAL, "conn", None)
-        if conn is not None:
-            return conn
+        """One SQLite connection per thread and database path, autocommit, WAL."""
         if not self._sqlite_path:
             db = self._server_config().get("database", {})
             # `path` is the file form of the sqlite config (folded into dsn by
             # config.load too); accept either spelling here.
             raw_dsn = db.get("dsn", "") or ("sqlite:///" + db.get("path", "") if db.get("path", "") else "")
             self._sqlite_path = sqlite_path_from_dsn(raw_dsn)
+        conns = getattr(_SQLITE_LOCAL, "conns", None)
+        if conns is None:
+            conns = {}
+            _SQLITE_LOCAL.conns = conns
+        conn = conns.get(self._sqlite_path)
+        if conn is not None:
+            return conn
         Path(self._sqlite_path).parent.mkdir(parents=True, exist_ok=True)
         from src.db import sqlite_types  # registers adapters/converters
 
@@ -439,7 +454,7 @@ class Store:
         )
         for pragma in _SQLITE_PRAGMAS:
             conn.execute(pragma)
-        _SQLITE_LOCAL.conn = conn
+        conns[self._sqlite_path] = conn
         return conn
 
     def _sync_conn(self):
@@ -469,9 +484,19 @@ class Store:
         if self._sync_pool is not None:
             self._sync_pool.closeall()
         if self.is_sqlite:
-            conn = getattr(_SQLITE_LOCAL, "conn", None)
-            if conn is not None:
-                conn.close()
+            conns = getattr(_SQLITE_LOCAL, "conns", None)
+            if conns and self._sqlite_path in conns:
+                conn = conns.pop(self._sqlite_path)
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            old_conn = getattr(_SQLITE_LOCAL, "conn", None)
+            if old_conn is not None:
+                try:
+                    old_conn.close()
+                except Exception:
+                    pass
                 _SQLITE_LOCAL.conn = None
         await aclose_engines()
 
