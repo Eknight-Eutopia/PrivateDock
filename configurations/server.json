@@ -1,6 +1,6 @@
 {
   "privatedock": {
-    "bind_address": "127.0.0.1",
+    "bind_address": "0.0.0.0",
     "port": 80,
     "name": "Private Dock",
     "require_private_clients": false
@@ -9,7 +9,7 @@
     {
       "id": 1,
       "name": "Private Dock",
-      "ip": "127.0.0.1",
+      "ip": "192.168.240.1",
       "port": 80
     }
   ],
