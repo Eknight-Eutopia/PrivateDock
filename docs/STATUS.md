@@ -77,8 +77,9 @@ Works, but a number of entries have no content yet.
 
 ### Admin web API
 Optional and **off by default**. Server status, permissions, chapter state, player data and
-shop routes work; user management, registration, exchange codes and similar routes are not
-implemented.
+shop routes work. The `/admin/` mail console supports administrator login, player search, and
+mailing resources/items/ships/skins with name or ID lookup. User management, registration,
+exchange codes and similar routes are not implemented.
 
 ---
 

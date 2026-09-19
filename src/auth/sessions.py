@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from src.auth.tokens import new_token
@@ -23,29 +23,29 @@ async def create_session(account_id: str, ip: str, user_agent: str, cfg: AuthCon
         account_id=account_id,
         created_at=now,
         last_seen_at=now,
-        expires_at=now.replace(second=int(now.timestamp() + ttl)),
+        expires_at=now + timedelta(seconds=ttl),
         ip_address=ip,
         user_agent=user_agent,
         csrf_token=csrf_token,
-        csrf_expires_at=now.replace(second=int(now.timestamp() + csrf_ttl_sec)),
+        csrf_expires_at=now + timedelta(seconds=csrf_ttl_sec),
     )
     store = get_default_store()
-    row = await store.afetchrow(
+    store.execute(
         "INSERT INTO sessions (id, account_id, created_at, last_seen_at, expires_at, ip_address, user_agent, csrf_token, csrf_expires_at) "
-        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, account_id, created_at, last_seen_at, expires_at, ip_address, user_agent, revoked_at, csrf_token, csrf_expires_at",
+        "VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)",
         session.id, session.account_id, session.created_at, session.last_seen_at, session.expires_at,
         session.ip_address, session.user_agent, session.csrf_token, session.csrf_expires_at,
     )
-    return _row_to_session(row)
+    return session
 
 
 async def load_session(session_id: str) -> tuple[Session, Account]:
     store = get_default_store()
-    row = await store.afetchrow(
+    row = store.fetchrow(
         "SELECT s.id, s.account_id, s.created_at, s.last_seen_at, s.expires_at, s.ip_address, s.user_agent, s.revoked_at, s.csrf_token, s.csrf_expires_at, "
         "a.id as a_id, a.username, a.username_normalized, a.commander_id, a.password_hash, a.password_algo, a.password_updated_at, "
         "a.is_admin, a.disabled_at, a.last_login_at, a.web_authn_user_handle, a.created_at as a_created_at, a.updated_at as a_updated_at "
-        "FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.id = $1 AND s.revoked_at IS NULL AND s.expires_at > NOW()",
+        "FROM sessions s JOIN accounts a ON a.id = s.account_id WHERE s.id = $1 AND s.revoked_at IS NULL",
         session_id,
     )
     if row is None:
@@ -75,12 +75,12 @@ async def load_session(session_id: str) -> tuple[Session, Account]:
 async def touch_session(session_id: str, last_seen: Optional[datetime] = None, expires_at: Optional[datetime] = None):
     store = get_default_store()
     if expires_at is None:
-        await store.aexecute(
+        store.execute(
             "UPDATE sessions SET last_seen_at = $1 WHERE id = $2",
             last_seen or datetime.now(timezone.utc), session_id,
         )
     else:
-        await store.aexecute(
+        store.execute(
             "UPDATE sessions SET last_seen_at = $1, expires_at = $2 WHERE id = $3",
             last_seen or datetime.now(timezone.utc), expires_at, session_id,
         )
@@ -88,9 +88,9 @@ async def touch_session(session_id: str, last_seen: Optional[datetime] = None, e
 
 async def refresh_csrf(session_id: str, cfg: AuthConfig) -> tuple[str, datetime]:
     token = new_token(32)
-    expires_at = datetime.now(timezone.utc).replace(second=int(datetime.now(timezone.utc).timestamp() + cfg.csrf_ttl_seconds))
+    expires_at = datetime.now(timezone.utc) + timedelta(seconds=cfg.csrf_ttl_seconds)
     store = get_default_store()
-    await store.aexecute(
+    store.execute(
         "UPDATE sessions SET csrf_token = $1, csrf_expires_at = $2 WHERE id = $3",
         token, expires_at, session_id,
     )
@@ -99,20 +99,24 @@ async def refresh_csrf(session_id: str, cfg: AuthConfig) -> tuple[str, datetime]
 
 async def revoke_session(session_id: str):
     store = get_default_store()
-    await store.aexecute("UPDATE sessions SET revoked_at = NOW() WHERE id = $1", session_id)
+    store.execute(
+        "UPDATE sessions SET revoked_at = $1 WHERE id = $2",
+        datetime.now(timezone.utc), session_id,
+    )
 
 
 async def revoke_sessions(account_id: str, except_session_id: Optional[str] = None):
     store = get_default_store()
+    now = datetime.now(timezone.utc)
     if except_session_id:
-        await store.aexecute(
-            "UPDATE sessions SET revoked_at = NOW() WHERE account_id = $1 AND id != $2 AND revoked_at IS NULL",
-            account_id, except_session_id,
+        store.execute(
+            "UPDATE sessions SET revoked_at = $1 WHERE account_id = $2 AND id != $3 AND revoked_at IS NULL",
+            now, account_id, except_session_id,
         )
     else:
-        await store.aexecute(
-            "UPDATE sessions SET revoked_at = NOW() WHERE account_id = $1 AND revoked_at IS NULL",
-            account_id,
+        store.execute(
+            "UPDATE sessions SET revoked_at = $1 WHERE account_id = $2 AND revoked_at IS NULL",
+            now, account_id,
         )
 
 

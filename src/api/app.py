@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 
 from src.api.config import APIConfig
 from src.api.middleware.recover import RecoverMiddleware
@@ -22,6 +25,7 @@ from src.api.routes import shop_notice
 from src.api.routes import exchange_codes
 from src.api.routes import juustagram
 from src.api.routes import activities
+from src.api.routes import mail_admin
 from src.logger.logger import log_event, LOG_LEVEL_INFO
 
 
@@ -59,6 +63,10 @@ def create_app(cfg: APIConfig) -> FastAPI:
     app.include_router(juustagram.router)
     app.include_router(juustagram.player_router)
     app.include_router(activities.router)
+    app.include_router(mail_admin.router)
+
+    webui_dir = Path(__file__).resolve().parent / "webui"
+    app.mount("/admin", StaticFiles(directory=str(webui_dir), html=True), name="admin")
 
     @app.on_event("startup")
     async def startup():

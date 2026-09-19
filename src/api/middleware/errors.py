@@ -1,3 +1,5 @@
+from http import HTTPStatus
+
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,7 +22,8 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         try:
             response = await call_next(request)
             if response.status_code >= 400:
-                body = {"ok": False, "error": {"code": _error_code(response.status_code), "message": response.reason_phrase}}
+                reason = getattr(response, "reason_phrase", "") or HTTPStatus(response.status_code).phrase
+                body = {"ok": False, "error": {"code": _error_code(response.status_code), "message": reason}}
                 return JSONResponse(body, status_code=response.status_code)
             return response
         except Exception as e:

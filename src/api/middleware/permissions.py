@@ -1,6 +1,6 @@
 from fastapi import Request, HTTPException
 
-from src.api.middleware.auth import get_account, is_auth_disabled
+from src.api.middleware.auth import get_account, is_auth_disabled, resolve_auth
 from src.api.response import error
 from src.authz import Capability, Operation, operation_for_method
 
@@ -56,6 +56,17 @@ async def require_permission_for_method(key: str, read_op: Operation, write_op: 
         op = operation_for_method(request.method, read_op, write_op)
         await require_permission(request, key, op)
     return _inner
+
+
+async def require_admin(request: Request):
+    """Allow disabled-auth deployments or authenticated admin accounts."""
+    if is_auth_disabled(request):
+        return
+    account, _session = await resolve_auth(request)
+    if account is None:
+        raise HTTPException(status_code=401, detail="session required")
+    if not account.get("is_admin"):
+        raise HTTPException(status_code=403, detail="admin access required")
 
 
 async def require_permission_any_or_self(key: str):

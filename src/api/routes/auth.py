@@ -6,8 +6,8 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 @router.post("/bootstrap")
-async def auth_bootstrap(_req: Request, handler: AuthHandler = Depends(get_auth_handler)):
-    return await handler.bootstrap()
+async def auth_bootstrap(req: Request, handler: AuthHandler = Depends(get_auth_handler)):
+    return await handler.bootstrap(req)
 
 
 @router.get("/bootstrap/status")
@@ -31,8 +31,8 @@ async def auth_session(req: Request, handler: AuthHandler = Depends(get_auth_han
 
 
 @router.post("/password")
-async def auth_change_password(_req: Request, handler: AuthHandler = Depends(get_auth_handler)):
-    return await handler.change_password()
+async def auth_change_password(req: Request, handler: AuthHandler = Depends(get_auth_handler)):
+    return await handler.change_password(req)
 
 
 @router.get("/passkeys")

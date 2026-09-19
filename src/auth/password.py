@@ -10,7 +10,7 @@ def hash_password(password: str) -> str:
 
 def verify_password(_hash_str: str, password: str) -> bool:
     try:
-        return _hasher.verify(password)
+        return _hasher.verify(_hash_str, password)
     except VerifyMismatchError:
         return False
 

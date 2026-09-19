@@ -331,9 +331,13 @@ PrivateDock includes an embedded REST API built with FastAPI. It is **disabled**
   ```text
   http://localhost:2289/docs
   ```
+- **Mail Web UI**: open `http://localhost:2289/admin/`. The first visit creates the initial
+  administrator account; later visits use the same account to sign in. The page can search for a
+  target commander, search resources/items/ships/skins by name or ID, and send the selected
+  attachments by in-game mail. Manual attachment type/ID entry is available for other drop types.
 - **Current Status**:
   - System health, server status, permission policies, and challenge routes are active.
-  - User management endpoints (`/api/v1/admin/users`) and web frontend dashboard are not currently under development (`not implemented`).
+  - User management and passkey endpoints are still placeholders (`not implemented`).
 - **Disabling the API**:
   - If you do not need the HTTP API service, run the server with `--no-api` or set `"api": {"enabled": false}` in `server.json`.
 

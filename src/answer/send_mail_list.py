@@ -2,7 +2,7 @@ from typing import Optional
 
 from src.connection.client import Client
 from src.consts.drop_types import DROP_TYPE_ITEM, DROP_TYPE_RESOURCE
-from src.orm.mail import afetch_mails_with_attachments
+from src.orm.mail import fetch_mails_with_attachments
 from src.protobuf import protobuf
 
 # Mail list request types (client GetMailListCommand): 1 = all/new,
@@ -104,7 +104,7 @@ async def handle_send_mail_list(buffer: bytes, client: Client) -> tuple[int, int
     payload.ParseFromString(buffer)
 
     try:
-        mails = await afetch_mails_with_attachments(client.commander.commander_id)
+        mails = fetch_mails_with_attachments(client.commander.commander_id)
     except Exception as e:
         await client.send_message(30003, protobuf.SC_30003())
         return 0, 30003, e

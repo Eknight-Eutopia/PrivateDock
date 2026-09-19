@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>PrivateDock 邮件管理</title>
+  <link rel="stylesheet" href="/admin/styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <section id="auth-view" class="auth-shell" hidden>
+    <div class="auth-panel">
+      <div class="brand-mark" aria-hidden="true">PD</div>
+      <div>
+        <h1 id="auth-title">管理员登录</h1>
+        <p id="auth-subtitle" class="muted">使用管理账号进入邮件发放控制台。</p>
+      </div>
+      <form id="auth-form" class="auth-form">
+        <label>
+          <span>用户名</span>
+          <input id="auth-username" name="username" autocomplete="username" required>
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="auth-password" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button id="auth-submit" class="primary" type="submit">登录</button>
+      </form>
+      <p id="auth-error" class="form-error" hidden></p>
+    </div>
+  </section>
+
+  <div id="app-view" class="app-shell" hidden>
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark small" aria-hidden="true">PD</span>
+        <div>
+          <strong>PrivateDock</strong>
+          <span>邮件发放</span>
+        </div>
+      </div>
+      <div class="session-actions">
+        <span id="session-user" class="muted"></span>
+        <button id="logout-button" class="quiet" type="button">退出</button>
+      </div>
+    </header>
+
+    <main class="workspace">
+      <section class="target-band" aria-labelledby="target-heading">
+        <div class="section-heading">
+          <div>
+            <span class="eyebrow">收件玩家</span>
+            <h2 id="target-heading">选择目标指挥官</h2>
+          </div>
+          <span id="selected-player" class="selection-chip" hidden></span>
+        </div>
+        <div class="search-wrap">
+          <label class="search-field">
+            <span class="search-symbol" aria-hidden="true">⌕</span>
+            <input id="player-search" type="search" placeholder="按指挥官名称或 ID 搜索" autocomplete="off">
+          </label>
+          <div id="player-results" class="result-menu" hidden></div>
+        </div>
+      </section>
+
+      <section class="compose-panel" aria-labelledby="compose-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="eyebrow">邮件内容</span>
+            <h2 id="compose-heading">撰写邮件</h2>
+          </div>
+        </div>
+        <div class="compose-grid">
+          <label>
+            <span>标题</span>
+            <input id="mail-title" maxlength="80" value="PrivateDock 补给">
+          </label>
+          <label>
+            <span>发件人</span>
+            <input id="mail-sender" maxlength="40" placeholder="可选，默认系统发件人">
+          </label>
+          <label class="full">
+            <span>正文</span>
+            <textarea id="mail-body" rows="5" maxlength="1000" placeholder="填写邮件正文"></textarea>
+          </label>
+        </div>
+      </section>
+
+      <section class="catalog-panel" aria-labelledby="catalog-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="eyebrow">附件</span>
+            <h2 id="catalog-heading">搜索物品</h2>
+          </div>
+          <span class="hint">支持名称或 ID，结果显示对应物品图形</span>
+        </div>
+        <div id="catalog-tabs" class="segmented" role="tablist" aria-label="物品类别">
+          <button class="active" data-category="item" role="tab" type="button">物品</button>
+          <button data-category="resource" role="tab" type="button">资源</button>
+          <button data-category="ship" role="tab" type="button">舰船</button>
+          <button data-category="skin" role="tab" type="button">皮肤</button>
+          <button data-category="manual" role="tab" type="button">手动</button>
+        </div>
+        <div id="catalog-search-wrap" class="search-wrap">
+          <label class="search-field">
+            <span class="search-symbol" aria-hidden="true">⌕</span>
+            <input id="catalog-search" type="search" placeholder="输入物品名称或 ID" autocomplete="off">
+          </label>
+        </div>
+        <div id="manual-entry" class="manual-entry" hidden>
+          <label>
+            <span>附件类型</span>
+            <input id="manual-type" type="number" min="1" value="2">
+          </label>
+          <label>
+            <span>物品 ID</span>
+            <input id="manual-id" type="number" min="1" placeholder="例如 20001">
+          </label>
+          <button id="manual-add" class="secondary" type="button">添加</button>
+        </div>
+        <div id="catalog-results" class="catalog-results">
+          <p class="empty-state">输入名称或 ID 开始搜索。</p>
+        </div>
+      </section>
+
+      <section class="attachment-panel" aria-labelledby="attachment-heading">
+        <div class="section-heading compact">
+          <div>
+            <span class="eyebrow">发放清单</span>
+            <h2 id="attachment-heading">已选附件</h2>
+          </div>
+          <span id="attachment-count" class="counter">0 项</span>
+        </div>
+        <div class="attachment-table-wrap">
+          <table class="attachment-table">
+            <thead>
+              <tr>
+                <th>物品</th>
+                <th>类型</th>
+                <th>数量</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="attachment-list"></tbody>
+          </table>
+          <p id="attachment-empty" class="empty-state">尚未添加附件。</p>
+        </div>
+        <div class="send-row">
+          <div id="send-summary" class="muted">选择收件人并添加至少一项附件。</div>
+          <button id="send-button" class="primary" type="button" disabled>发送邮件</button>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/admin/app.js" defer></script>
+</body>
+</html>
