@@ -739,6 +739,16 @@ def _parse_task_groups(config_data) -> list:
     return groups
 
 
+def _is_permanent_task_activity(activity_id: int) -> bool:
+    """Return whether an activity belongs to the permanent task gallery."""
+    try:
+        return get_config_entry(
+            "ShareCfg/activity_task_permanent.json", str(activity_id)
+        ) is not None
+    except Exception:
+        return False
+
+
 def _unlocked_day( commander_id: int, activity_id: int, groups: list,
 
                   now: int) -> int:
@@ -810,6 +820,7 @@ def _handle_task_list_sync(
         return _handle_activity_operation_noop(client)
 
     unlocked = _unlocked_day(commander_id, template.id, groups, now)
+    is_permanent = _is_permanent_task_activity(template.id)
 
     # Live rows only for ALREADY-ACCEPTED tasks; unaccepted groups must NOT
     # be seeded here (that is the day gate itself).
@@ -831,10 +842,12 @@ def _handle_task_list_sync(
     # gates the next handout.
     newly: list[int] = []
     current_day_ids: list[int] = []  # the day's rows to (re)push, if any are missing
+    blocked_by_calendar = False
     if cmd == 1:
         for idx, group in enumerate(groups):
             gday = idx + 1
             if gday > unlocked:
+                blocked_by_calendar = True
                 break
             gids = [t for t in group if t in valid_set]
             if not gids:
@@ -842,6 +855,25 @@ def _handle_task_list_sync(
             if all(t in claimed for t in gids):
                 continue  # day finished - the next group may follow
             # first unfinished group
+            if not any(t in accepted for t in gids):
+                newly = gids
+            else:
+                current_day_ids = gids
+            break
+
+    # The client's updateActivityTaskStatus retries until it receives a task VO
+    # for the current permanent-activity page. When the previous group is done
+    # but the next calendar day is locked, there is otherwise no VO to return,
+    # which causes an endless CS_11202 loop. For permanent galleries, hand out
+    # that next group immediately instead of returning an error (an error code
+    # makes the client show "Invalid Input").
+    if cmd == 1 and is_permanent and not newly and not current_day_ids and blocked_by_calendar:
+        for group in groups[unlocked:]:
+            gids = [t for t in group if t in valid_set]
+            if not gids:
+                continue
+            if all(t in claimed for t in gids):
+                continue
             if not any(t in accepted for t in gids):
                 newly = gids
             else:
@@ -897,7 +929,6 @@ def _handle_task_list_sync(
     # the day's VOs exist in TaskProxy, and a VO lost to a manual DB edit /
     # missed push would otherwise leave it re-sending cmd=1 forever
     # (addTask routes duplicates into tmpInfo, so re-sends are harmless).
-    response = protobuf.SC_11203(result=0)
     push_ids = list(newly) if newly else list(current_day_ids)
     if current_day_ids and not newly:
         missing = [t for t in current_day_ids if t not in accepted]
@@ -912,6 +943,8 @@ def _handle_task_list_sync(
             except Exception:
                 rows = []
             push_ids = current_day_ids
+
+    response = protobuf.SC_11203(result=0)
     if push_ids:
         by_id = {r.task_id: r for r in rows}
         push = protobuf.SC_20003()
@@ -924,7 +957,8 @@ def _handle_task_list_sync(
 
     log_event("Activities", "TaskListSync",
               f"activity={template.id} cmd={cmd} arg1={arg1} groups={len(groups)} "
-              f"unlocked={unlocked} new={len(newly)} day={day}",
+              f"unlocked={unlocked} new={len(newly)} day={day} "
+              f"blocked_by_calendar={blocked_by_calendar} result=0",
               LOG_LEVEL_DEBUG)
     asyncio.create_task(client.send_message(packet_id, response))
     return 0, packet_id, None
