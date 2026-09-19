@@ -161,6 +161,7 @@ async function showApp(data) {
 async function initialiseAuth() {
   try {
     const data = await request("/api/v1/auth/session", {}, false);
+    saveSession(data?.session?.id, data?.csrf_token);
     await showApp(data);
   } catch (_error) {
     clearSession();

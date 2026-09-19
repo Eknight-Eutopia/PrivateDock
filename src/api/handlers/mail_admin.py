@@ -12,6 +12,9 @@ from src.orm.active_commander import get_active_client
 
 _ITEM_CONFIG_CATEGORY = "sharecfgdata/item_data_statistics.json"
 _VALID_ATTACHMENT_TYPES = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 17, 19, 21, 22, 23, 24, 25, 31}
+# Ship templates at or above this id are shadow/enemy-only variants (for
+# example the duplicate Specialized Bulin templates 900314/900377/900495).
+_NPC_SHIP_TEMPLATE_ID_MIN = 900000
 
 
 def _limit(request: Request, default: int = 20, maximum: int = 50) -> int:
@@ -92,10 +95,12 @@ async def search_catalog(request: Request):
     elif category == "ship":
         rows = store.fetch(
             "SELECT template_id, name, rarity_id FROM ships "
-            "WHERE LOWER(name) LIKE LOWER($1) OR CAST(template_id AS TEXT) LIKE $1 "
+            "WHERE template_id < $3 "
+            "AND (LOWER(name) LIKE LOWER($1) OR CAST(template_id AS TEXT) LIKE $1) "
             "ORDER BY template_id LIMIT $2",
             pattern,
             limit,
+            _NPC_SHIP_TEMPLATE_ID_MIN,
         )
         entries = [
             {"attachment_type": 4, "item_id": int(row["template_id"]), "name": row["name"] or "", "rarity": int(row["rarity_id"] or 0), "icon": ""}
@@ -170,6 +175,8 @@ def _parse_attachment(raw: Any) -> tuple[int, int, int] | None:
     except (TypeError, ValueError):
         return None
     if attachment_type not in _VALID_ATTACHMENT_TYPES or item_id <= 0 or quantity <= 0:
+        return None
+    if attachment_type == 4 and item_id >= _NPC_SHIP_TEMPLATE_ID_MIN:
         return None
     return attachment_type, item_id, quantity
 
