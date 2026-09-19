@@ -63,16 +63,14 @@ def _has_max_level_upgrade_requirements(commander, reqs: list[dict]) -> bool:
 
 
 def _consume_max_level_upgrade_requirements(commander, reqs: list[dict]) -> None:
-    from src.orm.item import consume_item
-    from src.orm.resource import consume_resource
     for req in reqs:
         count = req.get("count", 0)
         if count == 0:
             continue
         if req["drop_type"] == 1:
-            consume_resource(commander, req["id"], count)
+            commander.consume_resource(req["id"], count)
         elif req["drop_type"] == 2:
-            consume_item(commander, req["id"], count)
+            commander.consume_item(req["id"], count)
         else:
             raise ValueError(f"unsupported requirement type {req['drop_type']}")
 
@@ -109,9 +107,12 @@ def _send_max_level_result(client, result: int):
 def handle_upgrade_ship_max_level(
     buffer: bytes, client: Client,
 ) -> tuple[int, int, Optional[Exception]]:
-    payload = json.loads(buffer.decode("utf-8", errors="replace"))
+    try:
+        payload = protobuf.CS_12038.FromString(buffer)
+    except Exception as e:
+        return 0, 12039, e
 
-    ship_id = payload.get("ship_id", 0)
+    ship_id = payload.ship_id
     owned = client.commander.owned_ships_map.get(ship_id)
     if owned is None:
         _send_max_level_result(client, 1)
