@@ -25,6 +25,8 @@ from .build_logic import (
     pool_ships as _pool_ships,
     build_cost_normal as _build_cost_normal,
     build_info_from_row as _build_info_from_row,
+    exchange_points_for_pool as _exchange_points_for_pool,
+    regular_exchange_request as _regular_exchange_request,
 )
 
 
@@ -35,8 +37,15 @@ def _draw_pool_ship_sync(pool_id: int) -> Optional[int]:
     return _draw_ship(ships, mode="base")
 
 
-def _increment_draw_count_sync(commander_id: int, count: int):
-    increment_commander_build_counts(commander_id, count)
+def _increment_draw_count_sync(
+    commander_id: int,
+    count: int,
+    exchange_points: int,
+    exchange_cap: int,
+):
+    increment_commander_build_counts(
+        commander_id, count, exchange_points, exchange_cap
+    )
 
 
 def _refresh_commander_builds(client: Client, rows: list):
@@ -115,7 +124,12 @@ def handle_ship_build(
         _consume_item(cid, 20001, cube_cost)
     _consume_resource(cid, 1, gold_cost)
 
-    _increment_draw_count_sync(cid, queued_count)
+    _increment_draw_count_sync(
+        cid,
+        queued_count,
+        queued_count * _exchange_points_for_pool(pool_id),
+        _regular_exchange_request(),
+    )
 
     # Server-authoritative task progress: starting a build advances "Build N ships" tasks.
     try:

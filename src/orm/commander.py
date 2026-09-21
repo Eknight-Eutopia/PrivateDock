@@ -743,27 +743,52 @@ async def aget_commander_build_counts(commander_id: int) -> dict[str, int]:
     return {"draw_count1": 0, "draw_count10": 0, "exchange_count": 0}
 
 
-def increment_commander_exchange_count(commander_id: int, amount: int) -> None:
+def increment_commander_exchange_count(
+    commander_id: int, amount: int, max_amount: int | None = None
+) -> None:
     store = get_default_store()
     if store is None:
         return
-    store.execute(
-        "UPDATE commanders SET exchange_count = exchange_count + $2 WHERE commander_id = $1",
-        commander_id, amount,
-    )
+    if max_amount is None:
+        store.execute(
+            "UPDATE commanders SET exchange_count = exchange_count + $2 WHERE commander_id = $1",
+            commander_id, amount,
+        )
+    else:
+        store.execute(
+            "UPDATE commanders SET exchange_count = "
+            "CASE WHEN exchange_count + $2 > $3 THEN $3 ELSE exchange_count + $2 END "
+            "WHERE commander_id = $1",
+            commander_id, amount, max_amount,
+        )
 
 
-async def aincrement_commander_exchange_count(commander_id: int, amount: int) -> None:
+async def aincrement_commander_exchange_count(
+    commander_id: int, amount: int, max_amount: int | None = None
+) -> None:
     store = get_default_store()
     if store is None:
         return
-    await store.aexecute(
-        "UPDATE commanders SET exchange_count = exchange_count + $2 WHERE commander_id = $1",
-        commander_id, amount,
-    )
+    if max_amount is None:
+        await store.aexecute(
+            "UPDATE commanders SET exchange_count = exchange_count + $2 WHERE commander_id = $1",
+            commander_id, amount,
+        )
+    else:
+        await store.aexecute(
+            "UPDATE commanders SET exchange_count = "
+            "CASE WHEN exchange_count + $2 > $3 THEN $3 ELSE exchange_count + $2 END "
+            "WHERE commander_id = $1",
+            commander_id, amount, max_amount,
+        )
 
 
-def increment_commander_build_counts(commander_id: int, count: int) -> None:
+def increment_commander_build_counts(
+    commander_id: int,
+    count: int,
+    exchange_points: int | None = None,
+    exchange_cap: int | None = None,
+) -> None:
     store = get_default_store()
     if store is None:
         return
@@ -777,10 +802,19 @@ def increment_commander_build_counts(commander_id: int, count: int) -> None:
             "UPDATE commanders SET draw_count10 = draw_count10 + 1 WHERE commander_id = $1",
             commander_id,
         )
-    increment_commander_exchange_count(commander_id, count)
+    increment_commander_exchange_count(
+        commander_id,
+        count if exchange_points is None else exchange_points,
+        exchange_cap,
+    )
 
 
-async def aincrement_commander_build_counts(commander_id: int, count: int) -> None:
+async def aincrement_commander_build_counts(
+    commander_id: int,
+    count: int,
+    exchange_points: int | None = None,
+    exchange_cap: int | None = None,
+) -> None:
     store = get_default_store()
     if store is None:
         return
@@ -794,7 +828,11 @@ async def aincrement_commander_build_counts(commander_id: int, count: int) -> No
             "UPDATE commanders SET draw_count10 = draw_count10 + 1 WHERE commander_id = $1",
             commander_id,
         )
-    await aincrement_commander_exchange_count(commander_id, count)
+    await aincrement_commander_exchange_count(
+        commander_id,
+        count if exchange_points is None else exchange_points,
+        exchange_cap,
+    )
 
 
 async def atry_decrement_commander_exchange_count(
@@ -811,4 +849,3 @@ async def atry_decrement_commander_exchange_count(
     if row is None:
         return None
     return {"exchange_count": row[0]}
-

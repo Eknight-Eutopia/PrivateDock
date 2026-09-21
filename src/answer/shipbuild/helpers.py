@@ -354,5 +354,12 @@ async def get_commander_counts(commander_id: int) -> dict:
     return await aget_commander_build_counts(commander_id)
 
 
-async def increment_draw_count(commander_id: int, count: int):
-    await aincrement_commander_build_counts(commander_id, count)
+async def increment_draw_count(
+    commander_id: int,
+    count: int,
+    exchange_points: int | None = None,
+    exchange_cap: int | None = None,
+):
+    await aincrement_commander_build_counts(
+        commander_id, count, exchange_points, exchange_cap
+    )

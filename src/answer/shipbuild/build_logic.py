@@ -1,4 +1,7 @@
 import datetime
+import json
+from functools import lru_cache
+from pathlib import Path
 from typing import List, Optional, Tuple
 
 from src.protobuf import protobuf
@@ -99,6 +102,77 @@ def build_cost_normal(pool_id: int) -> Tuple[int, int]:
 # (gold, cube) cost per Wishing Well create_id (ship_data_create_material[create_id]):
 # gold = use_gold, cube = number_1 (item 20001).
 CREATE_MATERIAL_COST = {6: (1500, 2), 7: (600, 1), 8: (1500, 2), 9: (600, 1)}
+
+
+# Client parity: BuildShipCommand adds `count * material.exchange_count` to
+# BuildShipProxy.regularExchangeCount (see buildshipcommand.lua). The server
+# previously stored only the raw build count, so the client could show 400/400
+# while the authoritative counter was still below the exchange threshold.
+_EXCHANGE_POINT_FALLBACK = {
+    1: 2,   # Special
+    2: 1,   # Light
+    3: 2,   # Heavy
+    6: 2,   # Wishing Well - Special
+    7: 1,   # Wishing Well - Light
+    8: 2,   # Wishing Well - Heavy
+    12: 2,
+    13: 2,
+}
+
+
+@lru_cache(maxsize=8)
+def _load_sharecfg(region: str, filename: str):
+    from src.misc.update_data_helpers import DATA_DIR
+
+    path = Path(DATA_DIR) / region / "ShareCfg" / filename
+    with path.open("r", encoding="utf-8") as config_file:
+        return json.load(config_file)
+
+
+@lru_cache(maxsize=8)
+def _exchange_points_by_pool(region: str) -> dict[int, int]:
+    try:
+        data = _load_sharecfg(region, "ship_data_create_material.json")
+        entries = data.values() if isinstance(data, dict) else data
+        counts = {}
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            pool_id = int(entry.get("id") or 0)
+            if pool_id:
+                counts[pool_id] = max(0, int(entry.get("exchange_count") or 0))
+        if counts:
+            return counts
+    except Exception:
+        pass
+    return dict(_EXCHANGE_POINT_FALLBACK)
+
+
+def exchange_points_for_pool(pool_id: int) -> int:
+    """Return the regular-exchange points granted by one build in a pool."""
+    from src.region.region import current as current_region
+
+    return _exchange_points_by_pool(current_region()).get(int(pool_id), 0)
+
+
+@lru_cache(maxsize=8)
+def _regular_exchange_request(region: str) -> int:
+    try:
+        data = _load_sharecfg(region, "ship_data_create_exchange.json")
+        entries = data.values() if isinstance(data, dict) else data
+        for entry in entries:
+            if isinstance(entry, dict) and int(entry.get("id") or 0) == 1:
+                return max(1, int(entry.get("exchange_request") or 400))
+    except Exception:
+        pass
+    return 400
+
+
+def regular_exchange_request() -> int:
+    """Return the regular build-pool UR exchange threshold."""
+    from src.region.region import current as current_region
+
+    return _regular_exchange_request(current_region())
 
 
 def build_cost_create_id(create_id: int) -> Tuple[int, int]:
