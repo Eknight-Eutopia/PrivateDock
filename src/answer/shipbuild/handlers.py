@@ -56,6 +56,16 @@ def _refresh_commander_builds(client: Client, rows: list):
         pass
 
 
+async def _send_build_result(client: Client, response) -> None:
+    """Send SC_12003, then overwrite the client's optimistic wallet with DB state."""
+    await client.send_message(12003, response)
+    try:
+        from src.answer.player_resource_sync import send_player_resource_sync
+        send_player_resource_sync(client)
+    except Exception:
+        pass
+
+
 def handle_ship_build(
     buffer: bytes, client: Client,
 ) -> tuple[int, int, Optional[Exception]]:
@@ -140,7 +150,7 @@ def handle_ship_build(
 
     response.result = 0
     response.build_info.extend(_build_info_from_row(row, now) for row in new_rows)
-    asyncio.create_task(client.send_message(12003, response))
+    asyncio.create_task(_send_build_result(client, response))
     return 0, 12003, None
 
 

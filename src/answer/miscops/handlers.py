@@ -193,10 +193,39 @@ def handle_player_buffs(_buffer: bytes, client: Client) -> tuple[int, int, Optio
     return 0, 11015, None
 
 
+async def _send_sell_result(client: Client, response) -> None:
+    await client.send_message(15009, response)
+    try:
+        from src.answer.player_resource_sync import send_player_resource_sync
+        send_player_resource_sync(client)
+    except Exception:
+        pass
+
+
 def handle_sell_item(_buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
+    try:
+        payload = protobuf.CS_15008()
+        payload.ParseFromString(_buffer)
+        items = [(int(item.id), int(item.count)) for item in payload.item_list]
+        if not items:
+            raise ValueError("empty sell item list")
+
+        from src.orm.item import sell_commander_items
+        awards = sell_commander_items(client.commander.commander_id, items)
+    except Exception as e:
+        log_event("SellItem", "Failed",
+                  f"commander={getattr(client.commander, 'commander_id', 0)}: {e}",
+                  LOG_LEVEL_ERROR)
+        response = protobuf.SC_15009(result=1)
+        asyncio.create_task(_send_sell_result(client, response))
+        return 0, 15009, None
+
     response = protobuf.SC_15009()
     response.result = 0
-    asyncio.create_task(client.send_message(15009, response))
+    asyncio.create_task(_send_sell_result(client, response))
+    log_event("SellItem", "Sold",
+              f"commander={client.commander.commander_id} items={items} awards={awards}",
+              LOG_LEVEL_DEBUG)
     return 0, 15009, None
 
 
