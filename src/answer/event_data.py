@@ -27,7 +27,7 @@ def handle_event_data(
     score_by_room = {s["room_id"]: s["max_score"] for s in scores}
 
     response = protobuf.SC_26120()
-    response.weekly_free = 0 if state.get("weekly_claimed", False) else 1
+    response.weekly_free = 1 if state.get("weekly_claimed", False) else 0
     response.monthly_ticket = state.get("monthly_ticket", 0)
     response.pay_coin_count = state.get("pay_coin_count", 0)
     response.first_enter = 1 if state.get("first_enter_claimed", False) else 0

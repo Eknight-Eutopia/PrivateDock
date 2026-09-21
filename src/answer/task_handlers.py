@@ -24,7 +24,7 @@ from src.orm.weekly_task_progress import (
     save_weekly_state,
 )
 from src.orm.config_entry import get_config_entry_sync, list_config_entries_sync
-from src.shopreset.framework import daily_window
+from src.shopreset.framework import daily_window, weekly_window
 
 RESULT_SUCCESS = 0
 RESULT_FAILED = 1
@@ -231,12 +231,11 @@ def _maybe_accept_mingshi_next_task(client: Client, task_id: int):
 
 
 # Task types the server tracks without an explicit accept: main (1), branch/
-# star (2), daily (3), weekly (4), new-weekly (13). Event-family types (5
-# hidden/Akashi, 6 ACTIVITY, 15 REFLUX, 16 ACTIVITY_REPEAT, 26 ACTIVITY_BRANCH
-# "Side", 36 ACTIVITY_ROUTINE event dailies, ...) exist only while their event
-# granted them -- a generic battle event must never conjure rows for every old
-# event's tasks (that is how hundreds of dead Side/Daily missions appeared).
-SERVER_TRACKED_TASK_TYPES = {1, 2, 3, 4, 13}
+# star (2), daily (3), old-weekly (4). Weekly bonus tasks (13) and event-family
+# types (5 hidden/Akashi, 6 ACTIVITY, 15 REFLUX, 16 ACTIVITY_REPEAT, 26 ACTIVITY_BRANCH
+# "Side", 36 ACTIVITY_ROUTINE event dailies, ...) are UPDATE-only -- only the
+# tasks explicitly seeded for the current week/event progress.
+SERVER_TRACKED_TASK_TYPES = {1, 2, 3, 4}
 
 
 def _submit_task_and_get_drops(client: Client, task_id: int, template: dict, ticket_cost: int) -> tuple[Optional[dict], bool]:
@@ -447,6 +446,79 @@ def _get_daily_task_ids() -> list:
                 ids.append(extra_id)
     _DAILY_TASK_IDS_CACHE = ids
     return ids
+
+
+_WEEKLY_FIXED_TASK_IDS_CACHE = None
+_WEEKLY_BONUS_TASK_POOL_CACHE = None
+_WEEKLY_BONUS_COUNT_CACHE = None
+
+
+def _get_weekly_fixed_task_ids() -> list:
+    global _WEEKLY_FIXED_TASK_IDS_CACHE
+    if _WEEKLY_FIXED_TASK_IDS_CACHE is not None:
+        return _WEEKLY_FIXED_TASK_IDS_CACHE
+    ids = []
+    entry = get_config_entry_sync("ShareCfg/gameset.json", "weekly_fixed_task")
+    if entry is not None:
+        data = entry.data
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = None
+        desc = data.get("description", []) if isinstance(data, dict) else []
+        if isinstance(desc, list):
+            ids.extend(int(x) for x in desc)
+    if not ids:
+        ids = [7311]
+    _WEEKLY_FIXED_TASK_IDS_CACHE = sorted(ids)
+    return _WEEKLY_FIXED_TASK_IDS_CACHE
+
+
+def _get_weekly_bonus_task_count() -> int:
+    global _WEEKLY_BONUS_COUNT_CACHE
+    if _WEEKLY_BONUS_COUNT_CACHE is not None:
+        return _WEEKLY_BONUS_COUNT_CACHE
+    count = 2
+    entry = get_config_entry_sync("ShareCfg/gameset.json", "weekly_bonus_task")
+    if entry is not None:
+        data = entry.data
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except Exception:
+                data = None
+        if isinstance(data, dict):
+            val = data.get("key_value")
+            if val is not None:
+                try:
+                    count = int(val)
+                except (TypeError, ValueError):
+                    pass
+    _WEEKLY_BONUS_COUNT_CACHE = count
+    return _WEEKLY_BONUS_COUNT_CACHE
+
+
+def _get_weekly_bonus_task_pool() -> list:
+    global _WEEKLY_BONUS_TASK_POOL_CACHE
+    if _WEEKLY_BONUS_TASK_POOL_CACHE is not None:
+        return _WEEKLY_BONUS_TASK_POOL_CACHE
+    fixed = set(_get_weekly_fixed_task_ids())
+    ids = []
+    try:
+        tpls = _all_task_templates()
+        for tid, t in tpls.items():
+            if isinstance(t, dict) and t.get("type") == 13:
+                itid = int(tid)
+                if itid not in fixed:
+                    ids.append(itid)
+    except Exception:
+        pass
+    if not ids:
+        ids = [7301, 7302, 7303, 7304, 7305, 7306, 7307, 7308, 7309, 7310]
+    ids.sort()
+    _WEEKLY_BONUS_TASK_POOL_CACHE = ids
+    return _WEEKLY_BONUS_TASK_POOL_CACHE
 
 
 _STAR_TASK_IDS_CACHE = None
@@ -860,6 +932,58 @@ def _ensure_daily_tasks(store, commander_id: int):
             )
 
 
+def _region_week_start(now_ts: int) -> int:
+    """Region-local start-of-week timestamp (Monday 00:00 server time)."""
+    return weekly_window(datetime.fromtimestamp(now_ts, tz=timezone.utc)).key
+
+
+def _ensure_weekly_tasks(store, commander_id: int, now_override: Optional[int] = None):
+    """Seed the weekly missions (type 13) into commander_tasks:
+    - Fixed weekly tasks from gameset.json:weekly_fixed_task (e.g. 7311 Dorm 3D)
+    - Random weekly bonus tasks from gameset.json:weekly_bonus_task (e.g. 2 tasks
+      randomly chosen from 7301-7310 with 1000 gold, 200 oil, and 2x T4 gear parts).
+    On each Monday 00:00 server-time reset, previous week's tasks are replaced
+    by a new deterministic random selection for that week."""
+    fixed_ids = _get_weekly_fixed_task_ids()
+    bonus_count = _get_weekly_bonus_task_count()
+    bonus_pool = _get_weekly_bonus_task_pool()
+    all_weekly_ids = list(set(fixed_ids + bonus_pool))
+    if not all_weekly_ids:
+        return
+
+    now = now_override if now_override is not None else int(time.time())
+    week_start = _region_week_start(now)
+
+    rows = store.fetch(
+        "SELECT task_id, submit_time, accept_time FROM commander_tasks WHERE commander_id = $1 AND task_id = ANY($2)",
+        commander_id, all_weekly_ids,
+    )
+    current_week_rows = [r for r in rows if r[2] is not None and r[2] >= week_start]
+    current_fixed = [r for r in current_week_rows if r[0] in fixed_ids]
+    current_bonus = [r for r in current_week_rows if r[0] in bonus_pool]
+
+    if len(current_fixed) == len(fixed_ids) and len(current_bonus) == bonus_count:
+        return
+
+    store.execute(
+        "DELETE FROM commander_tasks WHERE commander_id = $1 AND task_id = ANY($2)",
+        commander_id, all_weekly_ids,
+    )
+
+    import random
+    rng = random.Random(f"{commander_id}_{week_start}")
+    k = min(bonus_count, len(bonus_pool))
+    chosen_bonus = rng.sample(bonus_pool, k) if k > 0 else []
+
+    to_insert = sorted(list(set(fixed_ids + chosen_bonus)))
+    insert_params = [(commander_id, tid, now) for tid in to_insert]
+    store.executemany(
+        "INSERT INTO commander_tasks (commander_id, task_id, progress, accept_time, submit_time) "
+        "VALUES ($1, $2, 0, $3, 0) ON CONFLICT (commander_id, task_id) DO NOTHING",
+        insert_params,
+    )
+
+
 def _task_first_daily_pre_id() -> int:
     """Client gate: TaskScene.IsPassScenario() returns
     task_first_daily_pre_id < smallest ACTIVE type-1 task id. The pre-daily
@@ -1005,6 +1129,7 @@ def handle_commander_missions(_buffer: bytes, client: Client) -> tuple[int, int,
             # 1021) -- the real one-time 3-Star Reward for each stage.
             _ensure_star_tasks(store, client.commander.commander_id)
             _ensure_daily_tasks(store, client.commander.commander_id)
+            _ensure_weekly_tasks(store, client.commander.commander_id)
             _t1 = _time.monotonic()
             from src.answer.commandermisc.handlers import _ensure_manual_tasks
             _ensure_manual_tasks(client, store, client.commander.commander_id, int(time.time()), push_add=False)
@@ -1982,6 +2107,12 @@ async def maybe_reset_daily_weekly(client: Client):
     week_bucket = _region_week_bucket_for(now)
     last_week = getattr(client, "_reset_week_bucket", None)
     if last_week != week_bucket:
+        store = get_default_store()
+        if store is not None:
+            try:
+                _ensure_weekly_tasks(store, client.commander.commander_id)
+            except Exception:
+                pass
         try:
             from src.answer.weekly_task_cluster import handle_weekly_missions as _weekly
             await _weekly(b"", client)

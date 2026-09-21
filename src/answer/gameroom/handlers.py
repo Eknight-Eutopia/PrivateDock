@@ -1,12 +1,11 @@
-import asyncio
 import math
 from datetime import datetime, timezone
 from typing import Optional
 
 from src.connection.client import Client
-from src.protobuf import protobuf
+from src.connection.server import generate_packet_header
 from src.consts.drop_types import DROP_TYPE_RESOURCE
-from src.db.store import get_default_store
+from src.protobuf import protobuf
 
 from .helpers import (
     GAME_ROOM_COIN_RESOURCE_ID,
@@ -14,8 +13,6 @@ from .helpers import (
     load_game_room_template,
     load_game_room_settings,
     load_game_room_state,
-    load_game_room_state_for_update,
-    load_game_room_resource_amount_for_update,
     save_game_room_state,
     upsert_game_room_score,
     consume_commander_gold,
@@ -24,6 +21,13 @@ from .helpers import (
     game_room_exchange_price_by_count,
     game_room_multiplier_for_score,
 )
+
+
+def _send_response(client: Client, packet_id: int, response) -> tuple[int, int, Optional[Exception]]:
+    data = response.SerializeToString()
+    header = generate_packet_header(packet_id, data, client.packet_index)
+    client.write_to_buffer(header + data)
+    return 0, packet_id, None
 
 
 def handle_game_room_weekly_coin_claim(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
@@ -37,16 +41,14 @@ def handle_game_room_weekly_coin_claim(buffer: bytes, client: Client) -> tuple[i
     response.result = 1
 
     if client is None or client.commander is None:
-        asyncio.create_task(client.send_message(26123, response))
-        return 0, 26123, None
+        return _send_response(client, 26123, response)
 
     cid = client.commander.commander_id
     now = datetime.now(timezone.utc)
 
     state = load_game_room_state(cid, now)
     if state["weekly_claimed"]:
-        asyncio.create_task(client.send_message(26123, response))
-        return 0, 26123, None
+        return _send_response(client, 26123, response)
 
     try:
         settings = load_game_room_settings()
@@ -56,25 +58,16 @@ def handle_game_room_weekly_coin_claim(buffer: bytes, client: Client) -> tuple[i
     from src.orm.resource import get_owned_resource_amount, add_resource
     current_coin = get_owned_resource_amount(cid, GAME_ROOM_COIN_RESOURCE_ID)
 
-    remaining = 0
-    if current_coin < settings["coin_max"]:
-        remaining = settings["coin_max"] - current_coin
-    grant = settings["coin_initial"]
-    if grant > remaining:
-        grant = remaining
+    remaining = max(0, settings["coin_max"] - current_coin)
+    grant = min(settings["coin_initial"], remaining)
     if grant > 0:
         add_resource(cid, GAME_ROOM_COIN_RESOURCE_ID, grant)
 
-    store = get_default_store()
-
-    store.execute(
-        "UPDATE game_room_states SET weekly_claimed = TRUE, updated_at = CURRENT_TIMESTAMP WHERE commander_id = $1",
-        cid,
-    )
+    state["weekly_claimed"] = True
+    save_game_room_state(state)
 
     response.result = 0
-    asyncio.create_task(client.send_message(26123, response))
-    return 0, 26123, None
+    return _send_response(client, 26123, response)
 
 
 def handle_game_room_exchange_coin(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
@@ -88,66 +81,40 @@ def handle_game_room_exchange_coin(buffer: bytes, client: Client) -> tuple[int, 
     response.result = 1
 
     if payload.times == 0 or client is None or client.commander is None:
-        asyncio.create_task(client.send_message(26125, response))
-        return 0, 26125, None
-
-    try:
-        client.commander.load()
-    except Exception:
-        asyncio.create_task(client.send_message(26125, response))
-        return 0, 26125, None
+        return _send_response(client, 26125, response)
 
     try:
         settings = load_game_room_settings()
     except Exception as e:
         return 0, 26125, e
 
-    insufficient_gold = False
-    no_capacity = False
-    tx_error = None
+    cid = client.commander.commander_id
+    now = datetime.now(timezone.utc)
+    state = load_game_room_state(cid, now)
 
-    async def _run_tx():
-        nonlocal insufficient_gold, no_capacity
-        state = await load_game_room_state_for_update(client.commander.commander_id)
+    from src.orm.resource import get_owned_resource_amount, add_resource
+    current_coin = get_owned_resource_amount(cid, GAME_ROOM_COIN_RESOURCE_ID)
 
-        current_coin = await load_game_room_resource_amount_for_update(
-            client.commander.commander_id, GAME_ROOM_COIN_RESOURCE_ID
-        )
-        remaining = 0
-        if current_coin < settings["coin_max"]:
-            remaining = settings["coin_max"] - current_coin
-        grant_count = payload.times
-        if grant_count > remaining:
-            grant_count = remaining
-        if grant_count == 0:
-            no_capacity = True
-            return
+    remaining = max(0, settings["coin_max"] - current_coin)
+    grant_count = min(payload.times, remaining)
+    if grant_count == 0:
+        return _send_response(client, 26125, response)
 
-        total_gold = 0
-        for i in range(1, grant_count + 1):
-            total_gold += game_room_exchange_price_by_count(settings["coin_gold_tiers"], state["pay_coin_count"] + i)
+    total_gold = sum(
+        game_room_exchange_price_by_count(settings["coin_gold_tiers"], state["pay_coin_count"] + i)
+        for i in range(1, grant_count + 1)
+    )
 
-        ok = await consume_commander_gold(client.commander.commander_id, total_gold)
-        if not ok:
-            insufficient_gold = True
-            return
+    ok = consume_commander_gold(cid, total_gold)
+    if not ok:
+        return _send_response(client, 26125, response)
 
-        await add_commander_resource(client.commander.commander_id, GAME_ROOM_COIN_RESOURCE_ID, grant_count)
-        state["pay_coin_count"] += grant_count
-        await save_game_room_state(state)
-
-    try:
-        asyncio.create_task(_run_tx())
-    except Exception as e:
-        return 0, 26125, e
-
-    if insufficient_gold or no_capacity:
-        asyncio.create_task(client.send_message(26125, response))
-        return 0, 26125, None
+    add_resource(cid, GAME_ROOM_COIN_RESOURCE_ID, grant_count)
+    state["pay_coin_count"] += grant_count
+    save_game_room_state(state)
 
     response.result = 0
-    asyncio.create_task(client.send_message(26125, response))
-    return 0, 26125, None
+    return _send_response(client, 26125, response)
 
 
 def handle_game_room_success_settlement(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
@@ -161,85 +128,59 @@ def handle_game_room_success_settlement(buffer: bytes, client: Client) -> tuple[
     response.result = 1
 
     if payload.times == 0 or payload.roomid == 0 or client is None or client.commander is None:
-        asyncio.create_task(client.send_message(26127, response))
-        return 0, 26127, None
-
-    try:
-        client.commander.load()
-    except Exception:
-        asyncio.create_task(client.send_message(26127, response))
-        return 0, 26127, None
+        return _send_response(client, 26127, response)
 
     room, found, err = load_game_room_template(payload.roomid)
     if err is not None:
         return 0, 26127, err
     if not found or payload.times > room["coin_max"]:
-        asyncio.create_task(client.send_message(26127, response))
-        return 0, 26127, None
+        return _send_response(client, 26127, response)
 
     try:
         settings = load_game_room_settings()
     except Exception as e:
         return 0, 26127, e
 
-    insufficient_coin = False
-    tx_error = None
+    cid = client.commander.commander_id
 
-    async def _run_tx():
-        nonlocal insufficient_coin
-        state = await load_game_room_state_for_update(client.commander.commander_id)
+    ok = consume_commander_resource(cid, GAME_ROOM_COIN_RESOURCE_ID, payload.times)
+    if not ok:
+        return _send_response(client, 26127, response)
 
-        ok = await consume_commander_resource(client.commander.commander_id, GAME_ROOM_COIN_RESOURCE_ID, payload.times)
-        if not ok:
-            insufficient_coin = True
-            return
+    now = datetime.now(timezone.utc)
+    state = load_game_room_state(cid, now)
 
-        reward_per_play = int(math.floor(
-            float(room["add_base"]) * game_room_multiplier_for_score(room.get("add_num", []), payload.score)
-        ))
-        reward = reward_per_play * payload.times
+    reward_per_play = int(math.floor(
+        float(room["add_base"]) * game_room_multiplier_for_score(room.get("add_num", []), payload.score)
+    ))
+    reward = reward_per_play * payload.times
 
-        ticket_resource_id = room.get("add_type", 0)
-        if ticket_resource_id == 0:
-            ticket_resource_id = GAME_ROOM_TICKET_RESOURCE_ID
+    ticket_resource_id = room.get("add_type", 0)
+    if ticket_resource_id == 0:
+        ticket_resource_id = GAME_ROOM_TICKET_RESOURCE_ID
 
-        current_ticket = await load_game_room_resource_amount_for_update(
-            client.commander.commander_id, ticket_resource_id
-        )
-        total_remaining = 0
-        if current_ticket < settings["ticket_total_max"]:
-            total_remaining = settings["ticket_total_max"] - current_ticket
-        monthly_remaining = 0
-        if state["monthly_ticket"] < settings["ticket_monthly_max"]:
-            monthly_remaining = settings["ticket_monthly_max"] - state["monthly_ticket"]
-        grant = reward
-        if grant > total_remaining:
-            grant = total_remaining
-        if grant > monthly_remaining:
-            grant = monthly_remaining
+    from src.orm.resource import get_owned_resource_amount, add_resource
+    current_ticket = get_owned_resource_amount(cid, ticket_resource_id)
 
-        if grant > 0:
-            await add_commander_resource(client.commander.commander_id, ticket_resource_id, grant)
-            state["monthly_ticket"] += grant
-            drop = protobuf.DROPINFO()
-            drop.type = DROP_TYPE_RESOURCE
-            drop.id = ticket_resource_id
-            drop.number = grant
-            response.drop_list.append(drop)
+    total_remaining = max(0, settings["ticket_total_max"] - current_ticket)
+    monthly_remaining = max(0, settings["ticket_monthly_max"] - state["monthly_ticket"])
 
-        await upsert_game_room_score(client.commander.commander_id, payload.roomid, payload.score)
-        await save_game_room_state(state)
+    grant = min(reward, total_remaining, monthly_remaining)
 
-    try:
-        asyncio.create_task(_run_tx())
-    except Exception as e:
-        return 0, 26127, e
+    if grant > 0:
+        add_resource(cid, ticket_resource_id, grant)
+        state["monthly_ticket"] += grant
+        drop = protobuf.DROPINFO()
+        drop.type = DROP_TYPE_RESOURCE
+        drop.id = ticket_resource_id
+        drop.number = grant
+        response.drop_list.append(drop)
 
-    if insufficient_coin:
-        asyncio.create_task(client.send_message(26127, response))
-        return 0, 26127, None
+    upsert_game_room_score(cid, payload.roomid, payload.score)
+    save_game_room_state(state)
 
     response.result = 0
+
     # Server-authoritative task progress: a successful minigame play advances
     # "Finish the Shipgirl Game minigame N time(s)" (sub_type 415, target_id
     # = room id, e.g. room 64).
@@ -248,8 +189,8 @@ def handle_game_room_success_settlement(buffer: bytes, client: Client) -> tuple[
         schedule_emit(client, 415, payload.roomid, 1)
     except Exception:
         pass
-    asyncio.create_task(client.send_message(26127, response))
-    return 0, 26127, None
+
+    return _send_response(client, 26127, response)
 
 
 def handle_game_room_first_enter_coin_claim(buffer: bytes, client: Client) -> tuple[int, int, Optional[Exception]]:
@@ -263,53 +204,31 @@ def handle_game_room_first_enter_coin_claim(buffer: bytes, client: Client) -> tu
     response.result = 1
 
     if client is None or client.commander is None:
-        asyncio.create_task(client.send_message(26129, response))
-        return 0, 26129, None
-
-    try:
-        client.commander.load()
-    except Exception:
-        asyncio.create_task(client.send_message(26129, response))
-        return 0, 26129, None
+        return _send_response(client, 26129, response)
 
     try:
         settings = load_game_room_settings()
     except Exception as e:
         return 0, 26129, e
 
-    already_claimed = False
+    cid = client.commander.commander_id
+    now = datetime.now(timezone.utc)
+    state = load_game_room_state(cid, now)
 
-    async def _run_tx():
-        nonlocal already_claimed
-        state = await load_game_room_state_for_update(client.commander.commander_id)
-        if state["first_enter_claimed"]:
-            already_claimed = True
-            return
+    if state["first_enter_claimed"]:
+        return _send_response(client, 26129, response)
 
-        current_coin = await load_game_room_resource_amount_for_update(
-            client.commander.commander_id, GAME_ROOM_COIN_RESOURCE_ID
-        )
-        remaining = 0
-        if current_coin < settings["coin_max"]:
-            remaining = settings["coin_max"] - current_coin
-        grant = settings["coin_initial"]
-        if grant > remaining:
-            grant = remaining
-        if grant > 0:
-            await add_commander_resource(client.commander.commander_id, GAME_ROOM_COIN_RESOURCE_ID, grant)
+    from src.orm.resource import get_owned_resource_amount, add_resource
+    current_coin = get_owned_resource_amount(cid, GAME_ROOM_COIN_RESOURCE_ID)
 
-        state["first_enter_claimed"] = True
-        await save_game_room_state(state)
+    remaining = max(0, settings["coin_max"] - current_coin)
+    grant = min(settings["coin_initial"], remaining)
+    if grant > 0:
+        add_resource(cid, GAME_ROOM_COIN_RESOURCE_ID, grant)
 
-    try:
-        asyncio.create_task(_run_tx())
-    except Exception as e:
-        return 0, 26129, e
-
-    if already_claimed:
-        asyncio.create_task(client.send_message(26129, response))
-        return 0, 26129, None
+    state["first_enter_claimed"] = True
+    save_game_room_state(state)
 
     response.result = 0
-    asyncio.create_task(client.send_message(26129, response))
-    return 0, 26129, None
+    return _send_response(client, 26129, response)
+

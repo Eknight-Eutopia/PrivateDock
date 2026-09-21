@@ -324,7 +324,9 @@ def _auto_open_open_directly(commander_id: int, type_id: int, count: int, _depth
         _store_commander_item(commander_id, type_id, count)
         return
     from src.answer.item_usage import _display_icon_is_random
-    if _display_icon_is_random(cfg) and cfg.get("usage"):
+    usage_str = str(cfg.get("usage") or "")
+    is_drop_template = usage_str in ("usgae_drop_template", "usage_drop_template")
+    if not is_drop_template and _display_icon_is_random(cfg) and usage_str:
         # Random-pool open_directly boxes (Gear Skin Boxes etc.): the client is
         # told it received the ITEM (resolve_virtual_item_drops passes random
         # open_directly boxes through unchanged), so it adds the box to the bag
@@ -698,7 +700,9 @@ def resolve_virtual_item_drops(item_id: int, count: int, orig_type: int = DROP_T
         return _build_template_drop_entries(cfg, count)
     if cfg.get("open_directly", 0) == 1:
         from src.answer.item_usage import _display_icon_is_random
-        if not _display_icon_is_random(cfg):
+        usage_str = str(cfg.get("usage") or "")
+        is_drop_template = usage_str in ("usgae_drop_template", "usage_drop_template")
+        if is_drop_template or not _display_icon_is_random(cfg):
             # Fixed auto-open bundles (e.g. Decor Tokens Pack, Promise Crate,
             # Lucky Bags) auto-open upon receipt into their full contents.
             # Resolve them through the same preparation logic so callers

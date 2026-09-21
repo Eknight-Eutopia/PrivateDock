@@ -99,69 +99,6 @@ def game_room_month_key(now=None) -> int:
 from src.shopreset.framework import current_weekly_reset_unix
 
 
-async def load_game_room_state_for_update( commander_id: int, now=None):
-    """``conn`` is accepted for call-site compatibility and ignored: the
-    helpers run through the dialect-neutral store (see src.db.store)."""
-    if now is None:
-        now = datetime.now(timezone.utc)
-    week_start_unix = current_weekly_reset_unix(now)
-    month_key = game_room_month_key(now)
-
-    store = get_default_store()
-    row = await store.afetchrow(
-        """SELECT week_start_unix, weekly_claimed, pay_coin_count,
-           first_enter_claimed, month_key, monthly_ticket
-           FROM game_room_states
-           WHERE commander_id = $1
-           FOR UPDATE""",
-        commander_id
-    )
-
-    if row is None:
-        state = {
-            "commander_id": commander_id,
-            "week_start_unix": week_start_unix,
-            "weekly_claimed": False,
-            "pay_coin_count": 0,
-            "first_enter_claimed": False,
-            "month_key": month_key,
-            "monthly_ticket": 0,
-        }
-        await store.aexecute(
-            """INSERT INTO game_room_states
-               (commander_id, week_start_unix, weekly_claimed, pay_coin_count,
-                first_enter_claimed, month_key, monthly_ticket)
-               VALUES ($1, $2, $3, $4, $5, $6, $7)""",
-            commander_id, week_start_unix, False, 0, False, month_key, 0
-        )
-        return state
-
-    state = {
-        "commander_id": commander_id,
-        "week_start_unix": row["week_start_unix"],
-        "weekly_claimed": row["weekly_claimed"],
-        "pay_coin_count": row["pay_coin_count"],
-        "first_enter_claimed": row["first_enter_claimed"],
-        "month_key": row["month_key"],
-        "monthly_ticket": row["monthly_ticket"],
-    }
-
-    dirty = False
-    if state["week_start_unix"] != week_start_unix:
-        state["week_start_unix"] = week_start_unix
-        state["weekly_claimed"] = False
-        dirty = True
-    if state["month_key"] != month_key:
-        state["month_key"] = month_key
-        state["monthly_ticket"] = 0
-        dirty = True
-
-    if dirty:
-        await save_game_room_state(state)
-
-    return state
-
-
 def load_game_room_state(commander_id: int, now=None):
     if now is None:
         now = datetime.now(timezone.utc)
@@ -197,22 +134,34 @@ def load_game_room_state(commander_id: int, now=None):
         return state
 
     state = {
+        "commander_id": commander_id,
         "week_start_unix": row["week_start_unix"],
-        "weekly_claimed": row["weekly_claimed"],
+        "weekly_claimed": bool(row["weekly_claimed"]),
         "pay_coin_count": row["pay_coin_count"],
-        "first_enter_claimed": row["first_enter_claimed"],
+        "first_enter_claimed": bool(row["first_enter_claimed"]),
         "month_key": row["month_key"],
         "monthly_ticket": row["monthly_ticket"],
     }
 
+    dirty = False
     if state["week_start_unix"] != week_start_unix:
         state["week_start_unix"] = week_start_unix
         state["weekly_claimed"] = False
+        state["pay_coin_count"] = 0
+        dirty = True
     if state["month_key"] != month_key:
         state["month_key"] = month_key
         state["monthly_ticket"] = 0
+        dirty = True
+
+    if dirty:
+        save_game_room_state(state)
 
     return state
+
+
+async def load_game_room_state_for_update(commander_id: int, now=None):
+    return load_game_room_state(commander_id, now)
 
 
 def list_game_room_scores(commander_id: int):
@@ -224,20 +173,9 @@ def list_game_room_scores(commander_id: int):
     return [{"room_id": r["room_id"], "max_score": r["max_score"]} for r in rows]
 
 
-async def load_game_room_resource_amount_for_update( commander_id: int, resource_id: int) -> int:
+def save_game_room_state(state):
     store = get_default_store()
-    row = await store.afetchrow(
-        "SELECT amount FROM owned_resources WHERE commander_id = $1 AND resource_id = $2 FOR UPDATE",
-        commander_id, resource_id
-    )
-    if row is None:
-        return 0
-    return row["amount"]
-
-
-async def save_game_room_state( state):
-    store = get_default_store()
-    await store.aexecute(
+    store.execute(
         """UPDATE game_room_states
            SET week_start_unix = $2, weekly_claimed = $3, pay_coin_count = $4,
                first_enter_claimed = $5, month_key = $6, monthly_ticket = $7,
@@ -249,9 +187,9 @@ async def save_game_room_state( state):
     )
 
 
-async def upsert_game_room_score( commander_id: int, room_id: int, score: int):
+def upsert_game_room_score(commander_id: int, room_id: int, score: int):
     store = get_default_store()
-    await store.aexecute(
+    store.execute(
         """INSERT INTO game_room_scores (commander_id, room_id, max_score)
            VALUES ($1, $2, $3)
            ON CONFLICT (commander_id, room_id)
@@ -261,36 +199,31 @@ async def upsert_game_room_score( commander_id: int, room_id: int, score: int):
     )
 
 
-async def consume_commander_gold( commander_id: int, amount: int) -> bool:
+def consume_commander_gold(commander_id: int, amount: int) -> bool:
     store = get_default_store()
-    row = await store.afetchrow(
-        "SELECT coin FROM commanders WHERE commander_id = $1 FOR UPDATE",
+    row = store.fetchrow(
+        "SELECT coin FROM commanders WHERE commander_id = $1",
         commander_id
     )
     if row is None or row["coin"] < amount:
         return False
-    await store.aexecute(
+    store.execute(
         "UPDATE commanders SET coin = coin - $1 WHERE commander_id = $2",
         amount, commander_id
     )
     return True
 
 
-async def add_commander_resource( commander_id: int, resource_id: int, amount: int):
+def add_commander_resource(commander_id: int, resource_id: int, amount: int):
     from src.orm.resource import add_resource
     add_resource(commander_id, resource_id, amount)
 
 
-async def consume_commander_resource( commander_id: int, resource_id: int, amount: int) -> bool:
-    store = get_default_store()
-    row = await store.afetchrow(
-        "SELECT amount FROM owned_resources WHERE commander_id = $1 AND resource_id = $2 FOR UPDATE",
-        commander_id, resource_id
-    )
-    if row is None or row["amount"] < amount:
+def consume_commander_resource(commander_id: int, resource_id: int, amount: int) -> bool:
+    from src.orm.resource import get_owned_resource_amount, consume_resource
+    curr = get_owned_resource_amount(commander_id, resource_id)
+    if curr < amount:
         return False
-    await store.aexecute(
-        "UPDATE owned_resources SET amount = amount - $1 WHERE commander_id = $2 AND resource_id = $3",
-        amount, commander_id, resource_id
-    )
+    consume_resource(commander_id, resource_id, amount)
     return True
+
