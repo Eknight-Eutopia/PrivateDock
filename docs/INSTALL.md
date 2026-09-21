@@ -120,6 +120,7 @@ PrivateDock supports both **SQLite** and **PostgreSQL**.
 - **SQLite (Default & Recommended)**:
   - Zero manual setup required.
   - On the first server launch, PrivateDock automatically creates `db/privatedock.db`, applies all database migrations, and seeds the initial game data (items, ships, configurations) from `data/EN/`.
+  - After each successful login, a consistent snapshot is written to `db/backups/privatedock_YYYYMMDD_HHMMSS_microseconds.db`. Only the 10 newest login backups are retained.
 - **PostgreSQL (Optional)**:
   - If you prefer PostgreSQL, create a database (e.g. `privatedock`) and set the DSN and schema in `configurations/server.json`:
     ```json

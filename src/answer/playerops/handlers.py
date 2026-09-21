@@ -5,7 +5,7 @@ from typing import Optional
 from src.connection.client import Client
 from src.connection.server import generate_packet_header
 from src.protobuf import protobuf
-from src.logger.logger import log_event, LOG_LEVEL_INFO
+from src.logger.logger import log_event, LOG_LEVEL_ERROR, LOG_LEVEL_INFO
 
 from .helpers import (
     apply_commander_morale_recovery,
@@ -195,6 +195,14 @@ def handle_last_login(_buffer: bytes, client: Client) -> tuple[int, int, Optiona
     data = response.SerializeToString()
     header = generate_packet_header(11000, data, client.packet_index)
     client.write_to_buffer(header + data)
+
+    if not client._login_backup_scheduled:
+        try:
+            from src.db.backup import schedule_database_backup
+            schedule_database_backup(f"login commander={client.commander.commander_id}")
+            client._login_backup_scheduled = True
+        except Exception as e:
+            log_event("DB", "Backup", f"failed to schedule login backup: {e}", LOG_LEVEL_ERROR)
     return 0, 11000, None
 
 
