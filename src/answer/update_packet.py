@@ -6,6 +6,7 @@ from src.connection.client import Client
 from src.protobuf import protobuf
 
 PLATFORM_MAP = {"0": "Android", "1": "iOS"}
+UPDATE_VERSION_MARKERS = ("count-2", "dTag-1")
 _versions: list[str] = []
 
 
@@ -15,7 +16,10 @@ def _update_versions(hashes_fn) -> list[str]:
         return _versions
     hashes = hashes_fn()
     _versions = [h["hash"] for h in hashes]
-    _versions.append("dTag-1")
+    # The stock client's updater expects both protocol markers after the
+    # resource hashes. Omitting count-2 leaves it on "Checking for updates"
+    # until its network timeout.
+    _versions.extend(UPDATE_VERSION_MARKERS)
     return _versions
 
 
